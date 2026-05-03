@@ -22,8 +22,11 @@ func (s *Service) StartSplit(req SplitRequest) (*TaskHandle, error) {
 	s.register(taskID, cancel)
 
 	go func() {
+		// defer 顺序：后注册先执行。recoverToEmitter 必须最后注册，
+		// 这样 panic 先被它捕获 → emitter.Error，再走 cancel/unregister。
 		defer s.unregister(taskID)
 		defer cancel()
+		defer recoverToEmitter(emitter)
 		result, err := splitter.Split(ctx, task, emitter)
 		if err != nil {
 			emitter.Error(err)
