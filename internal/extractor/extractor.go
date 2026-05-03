@@ -102,7 +102,14 @@ func ExtractUnits(
 			Message: fs.File.Path + " [" + fs.File.SheetName + "]",
 		})
 
-		matched, skipped, err := processFile(ctx, &fs, schema, eng, unifiedSearchCols, task, ow, emitter)
+		var matched int
+		var skipped bool
+		switch core.DetectSourceKind(fs.File.Path) {
+		case core.SourceCSV:
+			matched, skipped, err = processCSVFile(ctx, &fs, schema, eng, unifiedSearchCols, task, ow, emitter)
+		default:
+			matched, skipped, err = processFile(ctx, &fs, schema, eng, unifiedSearchCols, task, ow, emitter)
+		}
 		if err != nil {
 			return nil, err
 		}

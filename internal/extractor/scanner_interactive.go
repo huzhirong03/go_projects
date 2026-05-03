@@ -30,8 +30,8 @@ func scanFolderInteractive(ctx context.Context, folder string, headerRow int, al
 	}
 	var entries []entryLike
 	if !stat.IsDir() {
-		if !strings.EqualFold(filepath.Ext(folder), ".xlsx") {
-			return nil, core.New("INVALID_FILE", "仅支持 .xlsx 文件: "+folder)
+		if !core.IsSupported(folder) {
+			return nil, core.New(core.CodeSourceFormatUnsupported, "仅支持 .xlsx / .xlsm / .csv 文件: "+folder)
 		}
 		entries = []entryLike{{isDir: false, name: filepath.Base(folder), full: folder}}
 	} else {
@@ -52,7 +52,7 @@ func scanFolderInteractive(ctx context.Context, folder string, headerRow int, al
 			continue
 		}
 		name := e.name
-		if strings.HasPrefix(name, "~$") || !strings.EqualFold(filepath.Ext(name), ".xlsx") {
+		if strings.HasPrefix(name, "~$") || !core.IsSupported(name) {
 			continue
 		}
 		full := e.full
@@ -70,7 +70,7 @@ func scanFolderInteractive(ctx context.Context, folder string, headerRow int, al
 			if skipFile {
 				break
 			}
-			fileUnits, err := probeFile(full, headerRow, allow)
+			fileUnits, err := probeAny(full, headerRow, allow)
 			if err == nil {
 				units = append(units, fileUnits...)
 				break
