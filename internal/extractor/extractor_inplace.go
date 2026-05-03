@@ -40,8 +40,8 @@ func extractInplace(
 		return nil, err
 	}
 	eng := matcher.NewEngine(task.Keywords, task.MatchMode)
-	if len(eng.Keywords()) == 0 {
-		return nil, core.New("NO_KEYWORDS", "至少需要一个关键词")
+	if !eng.HasKeywords() && task.AdvancedFilter.IsEmpty() {
+		return nil, core.New("NO_RULES", "至少需要一个关键词或一条高级筛选条件")
 	}
 	var unifiedSearchCols []int
 	if !task.SearchAllCols && len(task.SearchColumns) > 0 {
@@ -173,6 +173,11 @@ func validateInplace(
 	if strategy == core.OutputPerSource {
 		strategy = core.OutputMerged
 		emitter.Log(core.LogInfo, "inplace + 单文件：策略 per_source 自动降级为 merged")
+	}
+	// 无关键词（仅高级筛选）时 per_keyword 没有分组维度，自动降级 merged
+	if strategy == core.OutputPerKeyword && len(task.Keywords) == 0 {
+		strategy = core.OutputMerged
+		emitter.Log(core.LogInfo, "inplace + 仅高级筛选：策略 per_keyword 自动降级为 merged")
 	}
 	return srcPath, strategy, nil
 }
@@ -313,9 +318,16 @@ func scanHitsForInplace(
 		if err != nil {
 			return nil, total, err
 		}
-		kw := eng.MatchRow(cells, fileSearchCols)
-		if kw == "" {
-			continue
+		var kw string
+		if eng.HasKeywords() {
+			kw = eng.MatchRow(cells, fileSearchCols)
+			if kw == "" {
+				continue
+			}
+		} else {
+			// 仅高级筛选场景，没有关键词分组维度——用空 key 收集到单个 bucket。
+			// 上层 buildInplaceSpecs 看到空 keyword 会走 merged 路径生成单个新 sheet。
+			kw = ""
 		}
 		// 高级筛选：关键词命中后立即应用，未通过的行不计入 inplace 写回。
 		if !flt.Apply(cells) {

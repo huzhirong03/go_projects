@@ -170,8 +170,10 @@ func (s *Service) StartExtract(req ExtractRequest) (*TaskHandle, error) {
 
 func buildExtractTask(req ExtractRequest) (core.ExtractTask, error) {
 	keywords := matcher.ParseKeywords(req.KeywordsRaw)
-	if len(keywords) == 0 {
-		return core.ExtractTask{}, core.New("INVALID_TASK", "关键词不能为空")
+	advFilter := toCoreAdvancedFilter(req.AdvancedFilter)
+	// 关键词或高级筛选至少有一个；两者都空 → 拒绝
+	if len(keywords) == 0 && advFilter.IsEmpty() {
+		return core.ExtractTask{}, core.New("INVALID_TASK", "至少需要一个关键词或一条高级筛选条件")
 	}
 	var mode core.MatchMode
 	if req.Exact {
@@ -211,7 +213,7 @@ func buildExtractTask(req ExtractRequest) (core.ExtractTask, error) {
 		CSVDelimiter:   req.CSVDelimiter,
 		OutputTarget:   parseOutputTarget(req.OutputTarget),
 		BackupSource:   req.BackupSource,
-		AdvancedFilter: toCoreAdvancedFilter(req.AdvancedFilter),
+		AdvancedFilter: advFilter,
 	}, nil
 }
 

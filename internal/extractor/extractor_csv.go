@@ -62,11 +62,15 @@ func processCSVFile(
 		}
 
 		cells := r.Record()
-		kw := eng.MatchRow(cells, fileSearchCols)
-		if kw == "" {
-			continue
+		var kw string
+		if eng.HasKeywords() {
+			kw = eng.MatchRow(cells, fileSearchCols)
+			if kw == "" {
+				continue
+			}
 		}
 		// 高级筛选：关键词命中后立即应用，未通过的行不会写入下游。
+		// 无关键词时，filter 是唯一规则源。
 		if !flt.Apply(cells) {
 			continue
 		}

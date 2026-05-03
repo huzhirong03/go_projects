@@ -219,6 +219,56 @@ func TestExtract_FilterModeAny(t *testing.T) {
 	}
 }
 
+// 9. 仅高级筛选无关键词（V1.5 新场景）：per_keyword 自动降级 merged
+func TestExtract_FilterOnly_NoKeyword(t *testing.T) {
+	src := buildTestFolder(t)
+	out := t.TempDir()
+	task := core.ExtractTask{
+		FolderPath: src,
+		Keywords:   nil, // 没关键词
+		MatchMode:  core.MatchContains, SearchAllCols: true,
+		Output:    core.OutputPerKeyword, // 应自动降级为 merged
+		OutputDir: out, HeaderRow: 1,
+		AdvancedFilter: &core.AdvancedFilterSpec{
+			Mode: "all",
+			Conditions: []core.AdvancedFilterCondition{
+				{Column: "价格", Op: "ge", Value: "100"},
+			},
+		},
+	}
+	result, err := Extract(context.Background(), task, nil)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	// 价格>=100 行：file1 粉底C=120, file2 哑光口红D=150 → 2 行
+	if result.RowsMatched != 2 {
+		t.Errorf("RowsMatched = %d, want 2 (filter-only ge 100)", result.RowsMatched)
+	}
+	// 应只产出 1 个 merged 文件（per_keyword 已被降级）
+	if len(result.OutputFiles) != 1 {
+		t.Errorf("OutputFiles = %d, want 1 (per_keyword auto-downgraded to merged)", len(result.OutputFiles))
+	}
+}
+
+// 10. 关键词和筛选都空 → 报错
+func TestExtract_NoRules(t *testing.T) {
+	src := buildTestFolder(t)
+	out := t.TempDir()
+	task := core.ExtractTask{
+		FolderPath: src, Keywords: nil,
+		MatchMode: core.MatchContains, SearchAllCols: true,
+		Output: core.OutputMerged, OutputDir: out, HeaderRow: 1,
+		AdvancedFilter: nil,
+	}
+	_, err := Extract(context.Background(), task, nil)
+	if err == nil {
+		t.Fatal("两者都空应报错")
+	}
+	if !strings.Contains(err.Error(), "至少需要") {
+		t.Errorf("err msg 应含'至少需要'，实际 %v", err)
+	}
+}
+
 // 8. IsEmpty 跳过：spec 有 conditions 但全是空字段（占位行）
 func TestExtract_FilterAllEmpty_Bypassed(t *testing.T) {
 	src := buildTestFolder(t)

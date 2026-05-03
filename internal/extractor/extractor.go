@@ -70,8 +70,16 @@ func ExtractUnits(
 
 	// 3. 匹配引擎
 	eng := matcher.NewEngine(task.Keywords, task.MatchMode)
+	hasFilter := !task.AdvancedFilter.IsEmpty()
 	if len(eng.Keywords()) == 0 {
-		return nil, core.New("NO_KEYWORDS", "至少需要一个关键词")
+		// 允许"只用高级筛选"，但必须至少有一种规则
+		if !hasFilter {
+			return nil, core.New("NO_RULES", "至少需要一个关键词或一条高级筛选条件")
+		}
+		// per_keyword 在无关键词时没有分组维度，自动降级 merged
+		if task.Output == core.OutputPerKeyword {
+			task.Output = core.OutputMerged
+		}
 	}
 
 	// 4. 指定搜索列翻译成统一列索引（nil 表示全列）
@@ -278,12 +286,16 @@ func processFile(
 		if err != nil {
 			return len(matchedRows), false, err
 		}
-		kw := eng.MatchRow(cells, fileSearchCols)
-		if kw == "" {
-			continue
+		var kw string
+		if eng.HasKeywords() {
+			kw = eng.MatchRow(cells, fileSearchCols)
+			if kw == "" {
+				continue
+			}
 		}
 		// 高级筛选：关键词命中后立即应用，未通过的行不会触发下游公式查询/图片加载/EmitRow。
 		// flt 为 nil 或 IsZero 时 Apply 内部短路返回 true。
+		// 当无关键词时，filter 是唯一规则源；否则筛选是关键词命中的二次过滤（AND）。
 		if !flt.Apply(cells) {
 			continue
 		}
@@ -377,8 +389,8 @@ func validateTaskRelaxed(t core.ExtractTask) error {
 	if t.OutputTarget != core.OutputTargetInplaceSheets && t.OutputDir == "" {
 		return core.New("INVALID_TASK", "OutputDir 不能为空")
 	}
-	if len(t.Keywords) == 0 {
-		return core.New("INVALID_TASK", "Keywords 不能为空")
+	if len(t.Keywords) == 0 && t.AdvancedFilter.IsEmpty() {
+		return core.New("INVALID_TASK", "至少需要一个关键词或一条高级筛选条件")
 	}
 	switch t.Output {
 	case core.OutputPerKeyword, core.OutputMerged, core.OutputPerSource:

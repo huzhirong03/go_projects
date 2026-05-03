@@ -59,6 +59,12 @@ func (e *Engine) Keywords() []string {
 	return out
 }
 
+// HasKeywords 判断引擎是否含至少一个关键词。
+// 给 extractor 主循环用——避免每行 len(Keywords()) 分配切片。
+func (e *Engine) HasKeywords() bool {
+	return len(e.keywords) > 0
+}
+
 // Match 检查文本是否命中任一关键词。命中返回关键词原文，否则返回空串。
 func (e *Engine) Match(text string) string {
 	if len(e.keywords) == 0 || text == "" {
