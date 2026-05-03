@@ -55,11 +55,11 @@ func ScanFolder(folder string, headerRow int, allowSheets []string) ([]FileInfo,
 		if strings.HasPrefix(name, "~$") { // Excel 临时锁
 			continue
 		}
-		if !strings.EqualFold(filepath.Ext(name), ".xlsx") {
+		if !core.IsSupported(name) {
 			continue
 		}
 		full := filepath.Join(folder, name)
-		fileUnits, err := probeFile(full, headerRow, allow)
+		fileUnits, err := probeAny(full, headerRow, allow)
 		if err != nil {
 			// 单个文件坏掉不应中断整个扫描，但要向上抛，让调用方决定日志策略。
 			return nil, err
@@ -82,11 +82,11 @@ func ScanFile(path string, headerRow int, allowSheets []string) ([]FileInfo, err
 	if path == "" {
 		return nil, core.New("INVALID_FILE", "文件路径为空")
 	}
-	if !strings.EqualFold(filepath.Ext(path), ".xlsx") {
-		return nil, core.New("INVALID_FILE", "仅支持 .xlsx 文件: "+path)
+	if !core.IsSupported(path) {
+		return nil, core.New(core.CodeSourceFormatUnsupported, "仅支持 .xlsx / .xlsm / .csv 文件: "+path)
 	}
 	allow := newSheetFilter(allowSheets)
-	units, err := probeFile(path, headerRow, allow)
+	units, err := probeAny(path, headerRow, allow)
 	if err != nil {
 		return nil, err
 	}
@@ -97,8 +97,11 @@ func ScanFile(path string, headerRow int, allowSheets []string) ([]FileInfo, err
 }
 
 // SheetsOf 仅返回某个文件的全部 Sheet 名（用于前端预扫描列出可勾选项）。
-// 不读表头，性能开销 < 100ms。
+// 不读表头，性能开销 < 100ms。CSV 固定返回 ["CSV"]。
 func SheetsOf(path string) ([]string, error) {
+	if core.DetectSourceKind(path) == core.SourceCSV {
+		return []string{csvSheetName}, nil
+	}
 	r, err := excelio.Open(path)
 	if err != nil {
 		return nil, err
@@ -124,7 +127,7 @@ func FolderSheetsUnion(folder string) ([]string, error) {
 			continue
 		}
 		name := e.Name()
-		if strings.HasPrefix(name, "~$") || !strings.EqualFold(filepath.Ext(name), ".xlsx") {
+		if strings.HasPrefix(name, "~$") || !core.IsSupported(name) {
 			continue
 		}
 		sheets, err := SheetsOf(filepath.Join(folder, name))
@@ -139,6 +142,49 @@ func FolderSheetsUnion(folder string) ([]string, error) {
 		}
 	}
 	return union, nil
+}
+
+// csvSheetName 是 CSV 文件被包装成 "伪 Sheet" 后的名字，让下游代码不用改走 (Path, SheetName) 该路径。
+const csvSheetName = "CSV"
+
+// probeAny 按文件类型分发到 probeFile (xlsx) 或 probeCSV (csv)。
+func probeAny(path string, headerRow int, allow sheetFilter) ([]FileInfo, error) {
+	switch core.DetectSourceKind(path) {
+	case core.SourceCSV:
+		return probeCSVFile(path, headerRow, allow)
+	case core.SourceXLSX:
+		return probeFile(path, headerRow, allow)
+	default:
+		return nil, core.New(core.CodeSourceFormatUnsupported, "不支持的文件格式: "+path)
+	}
+}
+
+// probeCSVFile 读 CSV 首行作为表头，构造一条 SheetName="CSV" 的 FileInfo。
+// 这里不记录列宽（CSV 没有该概念），allow 允许列表不含 "CSV" 时返回空切片。
+func probeCSVFile(path string, headerRow int, allow sheetFilter) ([]FileInfo, error) {
+	if !allow.match(csvSheetName) {
+		return nil, nil
+	}
+	info := FileInfo{Path: path, SheetName: csvSheetName}
+	if headerRow > 0 {
+		r, err := excelio.OpenCSV(path, excelio.CSVOptions{})
+		if err != nil {
+			return nil, err
+		}
+		defer r.Close()
+		for i := 1; i <= headerRow; i++ {
+			if !r.Next() {
+				if err := r.Err(); err != nil {
+					return nil, err
+				}
+				return nil, core.Wrap(core.CodeCSVOpenFailed, "CSV 表头行超出文件范围: "+path, nil)
+			}
+			if i == headerRow {
+				info.Headers = append([]string(nil), r.Record()...)
+			}
+		}
+	}
+	return []FileInfo{info}, nil
 }
 
 func probeFile(path string, headerRow int, allow sheetFilter) ([]FileInfo, error) {
