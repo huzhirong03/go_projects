@@ -34,6 +34,9 @@ func SplitByRows(ctx context.Context, task core.SplitTask, emitter core.EventEmi
 	if task.RowsPerFile <= 0 {
 		return nil, core.New("INVALID_TASK", "RowsPerFile 必须 > 0")
 	}
+	if task.OutputTarget == core.OutputTargetInplaceSheets {
+		return splitByRowsInplace(ctx, task, emitter)
+	}
 
 	r, err := excelio.Open(task.SourcePath)
 	if err != nil {

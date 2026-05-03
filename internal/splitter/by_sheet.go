@@ -27,6 +27,10 @@ func SplitBySheet(ctx context.Context, task core.SplitTask, emitter core.EventEm
 	if err := requireXLSXSource(task.SourcePath); err != nil {
 		return nil, err
 	}
+	if task.OutputTarget == core.OutputTargetInplaceSheets {
+		return nil, core.New("INPLACE_BYSHEET_UNSUPPORTED",
+			"按 Sheet 拆分不支持\"写回源文件新 Sheet\"：源里每个 Sheet 直接就是结果，无需再产出新 Sheet。请改用\"输出新文件\"。")
+	}
 
 	// 打开源，读取 sheet 列表以及每个 sheet 的行数/图片数（统计用）
 	r, err := excelio.Open(task.SourcePath)
@@ -93,7 +97,8 @@ func validateCommon(task core.SplitTask) error {
 	if task.SourcePath == "" {
 		return core.New("INVALID_TASK", "SourcePath 不能为空")
 	}
-	if task.OutputDir == "" {
+	// inplace 写回源文件，不需要 OutputDir
+	if task.OutputTarget != core.OutputTargetInplaceSheets && task.OutputDir == "" {
 		return core.New("INVALID_TASK", "OutputDir 不能为空")
 	}
 	return nil

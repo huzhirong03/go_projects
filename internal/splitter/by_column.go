@@ -40,6 +40,9 @@ func SplitByColumn(ctx context.Context, task core.SplitTask, emitter core.EventE
 	if strings.TrimSpace(task.SplitColumn) == "" {
 		return nil, core.New("INVALID_TASK", "SplitColumn 不能为空")
 	}
+	if task.OutputTarget == core.OutputTargetInplaceSheets {
+		return splitByColumnInplace(ctx, task, emitter)
+	}
 
 	r, err := excelio.Open(task.SourcePath)
 	if err != nil {
