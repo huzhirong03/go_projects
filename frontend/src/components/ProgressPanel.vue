@@ -238,7 +238,8 @@ async function replyFileBlocked(action) {
 }
 
 .log-window {
-    max-height: 220px;
+    /* 限高 + 内部滚动：避免日志越多越長把外层 view 撞出视口 */
+    max-height: 120px;
     overflow-y: auto;
     background: var(--surface-2);
     border: 1px solid var(--border);
@@ -271,7 +272,15 @@ async function replyFileBlocked(action) {
 .result-title { font-weight: 600; color: var(--text); }
 .result-row { font-size: 13px; color: var(--text); }
 .result-row b { font-weight: 600; color: var(--text-secondary); }
-.output-list { margin-top: 4px; display: flex; flex-direction: column; gap: 2px; }
+.output-list {
+    margin-top: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    /* 输出文件很多时这里自滚，外层不被撞高 */
+    max-height: 100px;
+    overflow-y: auto;
+}
 .output-item { display: flex; gap: 8px; align-items: center; }
 .output-path {
     flex: 1;

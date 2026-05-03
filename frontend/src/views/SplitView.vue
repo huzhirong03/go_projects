@@ -1,5 +1,5 @@
 <script setup>
-import { reactive, watch, computed, onMounted, toRaw } from 'vue'
+import { reactive, watch, computed, onMounted, toRaw, ref, nextTick } from 'vue'
 import PathPicker from '../components/PathPicker.vue'
 import ProgressPanel from '../components/ProgressPanel.vue'
 import SheetSelector from '../components/SheetSelector.vue'
@@ -35,6 +35,7 @@ const defaults = {
 }
 
 const form = reactive({ ...defaults, sheetNames: [] })
+const progressEl = ref(null)
 
 const PERSIST_KEYS = Object.keys(defaults)
 
@@ -141,6 +142,8 @@ async function submit() {
             strategy: form.strategy,
         })
         startTask(handle.taskId)
+        await nextTick()
+        progressEl.value?.scrollIntoView({ behavior: 'smooth', block: 'end' })
     } catch (e) {
         showToast('启动失败：' + (e.message || e), 'error')
     }
@@ -254,7 +257,7 @@ async function submit() {
             </button>
         </div>
 
-        <ProgressPanel />
+        <div ref="progressEl"><ProgressPanel /></div>
     </div>
 </template>
 

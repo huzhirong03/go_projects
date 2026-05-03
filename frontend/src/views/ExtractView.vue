@@ -1,5 +1,5 @@
 <script setup>
-import { reactive, watch, onMounted, toRaw } from 'vue'
+import { reactive, watch, onMounted, toRaw, ref, nextTick } from 'vue'
 import PathPicker from '../components/PathPicker.vue'
 import ProgressPanel from '../components/ProgressPanel.vue'
 import SheetSelector from '../components/SheetSelector.vue'
@@ -34,6 +34,7 @@ const defaults = {
 }
 
 const form = reactive({ ...defaults, sheetNames: [] })
+const progressEl = ref(null) // ProgressPanel 容器，用于"开始"后自动滚到视野
 
 // 哪些字段需要持久化到磁盘。sheetNames 不保存（每个文件 Sheet 不一样）。
 const PERSIST_KEYS = Object.keys(defaults)
@@ -134,6 +135,9 @@ async function submit() {
                 : form.sheetNames,
         })
         startTask(handle.taskId)
+        // 任务启动后让 ProgressPanel 进入视口（仅在不可见时才滚）
+        await nextTick()
+        progressEl.value?.scrollIntoView({ behavior: 'smooth', block: 'end' })
     } catch (e) {
         showToast('启动失败：' + (e.message || e), 'error')
     }
@@ -239,7 +243,7 @@ async function submit() {
             </button>
         </div>
 
-        <ProgressPanel />
+        <div ref="progressEl"><ProgressPanel /></div>
     </div>
 </template>
 
