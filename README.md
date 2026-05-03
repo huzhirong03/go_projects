@@ -1,6 +1,8 @@
 # Excel 拆合大师 (Excel Master Suite)
 
 > 一键拆分、提取合并 Excel 工作簿，**100% 保留样式 / 图片 / 公式 / 合并单元格**。
+>
+> _🎓 大荣老师出品_
 
 ![version](https://img.shields.io/badge/version-v1.0.0-blue) ![platform](https://img.shields.io/badge/platform-Windows%2010%2B-success) ![license](https://img.shields.io/badge/license-Authorized%20Use%20Only-orange)
 

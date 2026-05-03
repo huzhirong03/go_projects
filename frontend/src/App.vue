@@ -52,7 +52,11 @@ async function handleOpenLogFolder() {
 <template>
     <div class="app">
         <header class="topbar">
-            <div class="brand">Excel 拆合大师</div>
+            <div class="brand">
+                <span class="brand-name">Excel 拆合大师</span>
+                <span class="brand-version">v1.0.0</span>
+                <span class="brand-tagline">· 大荣老师出品</span>
+            </div>
             <nav class="tabs">
                 <button :class="['tab', { active: activeTab === 'extract' }]"
                         @click="switchTab('extract')">批量提取</button>
@@ -90,11 +94,8 @@ async function handleOpenLogFolder() {
 }
 .brand {
     display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text);
+    align-items: baseline;
+    gap: 6px;
     letter-spacing: -0.01em;
 }
 .brand::before {
@@ -106,7 +107,12 @@ async function handleOpenLogFolder() {
     background: var(--accent);
     border-radius: var(--r-xs);
     box-shadow: inset 0 0 0 1px rgba(0,0,0,0.06);
+    align-self: center;
+    margin-right: 2px;
 }
+.brand-name { font-size: 14px; font-weight: 600; color: var(--text); }
+.brand-version { font-size: 12px; font-weight: 500; color: var(--text-secondary); margin-left: 2px; }
+.brand-tagline { font-size: 12px; font-weight: 400; color: var(--text-secondary); }
 
 .tabs { display: flex; gap: 2px; }
 .topbar-spacer { flex: 1; } /* 把日志按钮顶到最右 */

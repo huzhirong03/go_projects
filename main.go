@@ -109,7 +109,7 @@ func main() {
 	// Create application with options
 	log.Printf("[STARTUP] before wails.Run, +%v", time.Since(procStart))
 	err := wails.Run(&options.App{
-		Title:  core.AppName + " " + core.Version,
+		Title:  core.AppName + " " + core.Version + " · " + core.BrandTagline,
 		Width:  1000,
 		Height: 800,
 		AssetServer: &assetserver.Options{

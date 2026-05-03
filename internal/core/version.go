@@ -20,6 +20,10 @@ const (
 	//   - PATCH：修 bug，无新功能
 	Version = "v1.0.0"
 
+	// BrandTagline 品牌副标，跟在版本号后面用 · 分隔显示。
+	// 学员一眼能看到出处，做教程视频时也是天然的口播识别。
+	BrandTagline = "大荣老师出品"
+
 	// Author 作者署名，About 弹窗 / 系统属性页用。
 	Author = "huzhirong03"
 

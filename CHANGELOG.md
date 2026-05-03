@@ -1,6 +1,6 @@
 # 变更日志 (Changelog)
 
-> Excel 拆合大师每个版本的变更记录。
+> Excel 拆合大师 · 大荣老师出品 — 每个版本的变更记录。
 > 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
 ---
