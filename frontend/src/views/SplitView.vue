@@ -29,6 +29,9 @@ const defaults = {
     // CSV 可选参数（仅 by_keyword + .csv 生效，后端同步序）
     csvEncoding: '',
     csvDelimiter: '',
+    // 输出目标；new_files = 默认，inplace_sheets = 写回源文件新 Sheet
+    outputTarget: 'new_files',
+    backupSource: false,
     pinyin: true,
     searchAllCols: true,
     searchColumns: [],
@@ -80,6 +83,17 @@ const needsHeader = computed(() => form.mode !== SPLIT_BY_SHEET)
 // CSV 源识别：单文件拆分看后缀即可。
 const hasCSVSource = computed(() => /\.csv$/i.test(form.sourcePath || ''))
 
+// inplace 可用性：xlsx 源且不是 by_sheet 模式（by_sheet inplace 语义为 0）
+const inplaceAvailable = computed(() =>
+    !!form.sourcePath && !/\.csv$/i.test(form.sourcePath) && form.mode !== SPLIT_BY_SHEET
+)
+const isInplace = computed(() => inplaceAvailable.value && form.outputTarget === 'inplace_sheets')
+
+watch(inplaceAvailable, (v) => {
+    if (!v && form.outputTarget === 'inplace_sheets') form.outputTarget = 'new_files'
+})
+// SplitView 的策略只有 per_keyword / merged，不需要降级处理。
+
 // 选完文件 / 改了 headerRow → 自动预扫描。
 watch(() => [form.sourcePath, form.headerRow], async ([path]) => {
     if (!path) {
@@ -120,7 +134,7 @@ function scrollToBottom() {
 
 async function submit() {
     if (!form.sourcePath) return showToast('请先选择源文件', 'warn')
-    if (!form.outputDir) return showToast('请先选择输出目录', 'warn')
+    if (!isInplace.value && !form.outputDir) return showToast('请先选择输出目录', 'warn')
     if (previewState.sheets.length > 1 && form.sheetNames.length === 0) {
         return showToast('请至少勾选一个要处理的 Sheet', 'warn')
     }
@@ -159,6 +173,8 @@ async function submit() {
             strategy: form.strategy,
             csvEncoding: form.csvEncoding,
             csvDelimiter: form.csvDelimiter,
+            outputTarget: isInplace.value ? 'inplace_sheets' : 'new_files',
+            backupSource: isInplace.value && form.backupSource,
         })
         startTask(handle.taskId)
         // 任务完成后由 watch(task.result/error) 自动滚到底部
@@ -179,8 +195,27 @@ async function submit() {
             <div class="row-2col">
                 <PathPicker v-model="form.sourcePath" mode="file"
                             label="源文件" placeholder="选择要拆分的 .xlsx / .csv" />
-                <PathPicker v-model="form.outputDir" mode="folder"
+                <PathPicker v-if="!isInplace" v-model="form.outputDir" mode="folder"
                             label="输出目录" placeholder="拆分结果输出到此" />
+                <div v-else class="inplace-hint">
+                    <label class="field-label">输出目录</label>
+                    <span class="field-hint">结果会以新 Sheet 形式写回源文件，无需输出目录</span>
+                </div>
+            </div>
+            <div v-if="inplaceAvailable" class="strip strip-inline" style="margin-top:8px">
+                <span class="strip-title">输出目标</span>
+                <div class="seg" role="tablist">
+                    <button type="button" :class="['seg-btn', { active: form.outputTarget === 'new_files' }]"
+                            @click="form.outputTarget = 'new_files'">📄 新文件</button>
+                    <button type="button" :class="['seg-btn', { active: form.outputTarget === 'inplace_sheets' }]"
+                            @click="form.outputTarget = 'inplace_sheets'">📑 写回源文件新 Sheet</button>
+                </div>
+                <label v-if="isInplace" class="keep-images" style="margin-left:auto">
+                    <input type="checkbox" v-model="form.backupSource" /> 写回前先备份源文件 (.bak)
+                </label>
+            </div>
+            <div v-else-if="form.mode === SPLIT_BY_SHEET" class="field-hint" style="margin-top:6px">
+                按 Sheet 拆分仅支持输出新文件
             </div>
         </Collapsible>
 
@@ -362,6 +397,31 @@ async function submit() {
     padding: 0 8px;
     font-size: 13px;
     min-width: 130px;
+}
+.strip-inline { padding: 8px 14px; }
+.seg {
+    display: inline-flex;
+    background: var(--surface-2);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-sm);
+    padding: 2px;
+}
+.seg-btn {
+    appearance: none; background: transparent; border: none;
+    color: var(--text-secondary);
+    font: inherit; font-size: 12px; font-weight: 500;
+    padding: 4px 12px; border-radius: 3px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 4px;
+}
+.seg-btn:hover { background: var(--surface-hover); color: var(--text); }
+.seg-btn.active {
+    background: var(--accent-soft);
+    color: var(--accent-soft-fg);
+    font-weight: 600;
+    box-shadow: inset 0 0 0 1px var(--accent);
+}
+.inplace-hint {
+    display: flex; flex-direction: column; gap: 6px; padding-top: 26px;
 }
 
 .card {

@@ -38,6 +38,10 @@ const defaults = {
     // CSV 可选参数；空 = 后端自动推断
     csvEncoding: '',
     csvDelimiter: '',
+    // 输出目标；new_files = 默认，inplace_sheets = 写回源文件新 Sheet
+    // 仅单文件 + xlsx 源生效；其它场景后端自动回退 new_files
+    outputTarget: 'new_files',
+    backupSource: false,
     // 折叠状态（默认全展开）
     foldPaths: false,
     foldKeywords: false,
@@ -62,6 +66,22 @@ const sourcePath = computed({
 const hasCSVSource = computed(() => {
     if (form.sourceMode === 'file') return /\.csv$/i.test(form.filePath || '')
     return /\.csv$/i.test(previewState.firstFile || '')
+})
+
+// inplace 只在“单文件 + xlsx”时可用；文件夹 / CSV 都隐藏该选项。
+const inplaceAvailable = computed(() =>
+    form.sourceMode === 'file' && form.filePath && !/\.csv$/i.test(form.filePath)
+)
+const isInplace = computed(() => inplaceAvailable.value && form.outputTarget === 'inplace_sheets')
+
+// inplace 下隐藏 per_source（单文件语义等同 merged）。若用户之前选了 per_source，
+// 切到 inplace 时自动回退为 per_keyword。
+watch(isInplace, (v) => {
+    if (v && form.strategy === OUTPUT_PER_SOURCE) form.strategy = OUTPUT_PER_KEYWORD
+})
+// 当源切换为不可用 inplace 的场景时，重置输出目标，避免以隐藏状态裹挨提交。
+watch(inplaceAvailable, (v) => {
+    if (!v && form.outputTarget === 'inplace_sheets') form.outputTarget = 'new_files'
 })
 
 // 任务完成（成功或失败）时，自动平滑滚到底部，让用户看到结果总结/错误。
@@ -163,7 +183,7 @@ async function submit() {
     if (!sourcePath.value) {
         return showToast(form.sourceMode === 'file' ? '请先选择源文件' : '请先选择源文件夹', 'warn')
     }
-    if (!form.outputDir) return showToast('请先选择输出目录', 'warn')
+    if (!isInplace.value && !form.outputDir) return showToast('请先选择输出目录', 'warn')
     if (!form.keywordsRaw.trim()) return showToast('请输入至少一个关键词', 'warn')
     if (!form.exact && !form.contains && !form.pinyin) {
         return showToast('请至少选择一种匹配模式', 'warn')
@@ -192,6 +212,8 @@ async function submit() {
                 : form.sheetNames,
             csvEncoding: form.csvEncoding,
             csvDelimiter: form.csvDelimiter,
+            outputTarget: isInplace.value ? 'inplace_sheets' : 'new_files',
+            backupSource: isInplace.value && form.backupSource,
         })
         startTask(handle.taskId)
         // 注意：不在这里立刻滚动，结果还没生成滚下去也是空的。
@@ -216,8 +238,24 @@ async function submit() {
                             :allow-switch="true"
                             label="源数据"
                             :placeholder="form.sourceMode === 'file' ? '选一个 .xlsx / .csv 文件' : '选含多个 Excel / CSV 的文件夹'" />
-                <PathPicker v-model="form.outputDir" mode="folder"
+                <PathPicker v-if="!isInplace" v-model="form.outputDir" mode="folder"
                             label="输出目录" placeholder="结果会写到这个目录" />
+                <div v-else class="inplace-hint">
+                    <label class="field-label">输出目录</label>
+                    <span class="field-hint">结果会以新 Sheet 形式写回源文件，无需输出目录</span>
+                </div>
+            </div>
+            <div v-if="inplaceAvailable" class="strip strip-inline" style="margin-top:8px">
+                <span class="strip-title">输出目标</span>
+                <div class="seg" role="tablist">
+                    <button type="button" :class="['seg-btn', { active: form.outputTarget === 'new_files' }]"
+                            @click="form.outputTarget = 'new_files'">📄 新文件</button>
+                    <button type="button" :class="['seg-btn', { active: form.outputTarget === 'inplace_sheets' }]"
+                            @click="form.outputTarget = 'inplace_sheets'">📑 写回源文件新 Sheet</button>
+                </div>
+                <label v-if="isInplace" class="keep-images" style="margin-left:auto">
+                    <input type="checkbox" v-model="form.backupSource" /> 写回前先备份源文件 (.bak)
+                </label>
             </div>
         </Collapsible>
 
@@ -281,7 +319,7 @@ async function submit() {
                         每个关键词一个文件</label>
                     <label><input type="radio" :value="OUTPUT_MERGED" v-model="form.strategy" />
                         合成一个文件</label>
-                    <label><input type="radio" :value="OUTPUT_PER_SOURCE" v-model="form.strategy" />
+                    <label v-if="!isInplace"><input type="radio" :value="OUTPUT_PER_SOURCE" v-model="form.strategy" />
                         每个源文件一个</label>
                 </div>
             </div>
@@ -394,6 +432,42 @@ async function submit() {
     font-size: 13px;
 }
 .csv-field .name-select { min-width: 130px; }
+
+/* 输出目标分段控件（与 PathPicker 用同一套设计） */
+.strip-inline { padding: 8px 14px; }
+.seg {
+    display: inline-flex;
+    background: var(--surface-2);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-sm);
+    padding: 2px;
+}
+.seg-btn {
+    appearance: none;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 4px 12px;
+    border-radius: 3px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+.seg-btn:hover { background: var(--surface-hover); color: var(--text); }
+.seg-btn.active {
+    background: var(--accent-soft);
+    color: var(--accent-soft-fg);
+    font-weight: 600;
+    box-shadow: inset 0 0 0 1px var(--accent);
+}
+.inplace-hint {
+    display: flex; flex-direction: column; gap: 6px;
+    padding-top: 26px;
+}
 .strip-title {
     font-size: 13px;
     font-weight: 600;
