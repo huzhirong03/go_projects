@@ -50,6 +50,7 @@ func main() {
 		// 跟前端 --bg: #eef3ee 对齐，避免启动闪白/闪深色
 		BackgroundColour: &options.RGBA{R: 238, G: 243, B: 238, A: 255},
 		OnStartup:        app.startup,
+		OnDomReady:       app.domReady, // 窗口实际显示后再居中，否则 SetPosition 不稳
 		Bind: []interface{}{
 			app,
 		},

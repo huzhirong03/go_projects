@@ -22,14 +22,19 @@ type App struct {
 func NewApp() *App { return &App{} }
 
 // startup 在 Wails 启动时注入 runtime context，用于 EventsEmit。
-// 顺便把窗口居中到主显示器，避免默认按屏幕左上角开。
 func (a *App) startup(ctx context.Context) {
 	t0 := time.Now()
 	log.Printf("[STARTUP] app.startup invoked, +%v since main", time.Since(procStart))
 	a.ctx = ctx
 	a.svc = service.NewService(service.NewWailsEmitterFactory(ctx))
-	runtime.WindowCenter(ctx)
 	log.Printf("[STARTUP] app.startup done in %v, +%v since main", time.Since(t0), time.Since(procStart))
+}
+
+// domReady 在前端 DOM 就绪、窗口已实际显示后调用。
+// 居中放在这里才稳定 —— OnStartup 时窗口还没显示，SetPosition 算的相对位置不可靠。
+func (a *App) domReady(ctx context.Context) {
+	runtime.WindowCenter(ctx)
+	log.Printf("[STARTUP] domReady: window centered, +%v since main", time.Since(procStart))
 }
 
 // PreviewFolder 前端在选完文件夹后调一次，拿第一个 xlsx 的表头 + 所有 Sheet 名。

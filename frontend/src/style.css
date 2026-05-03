@@ -12,19 +12,21 @@
 
 :root {
     /* Surfaces ---------------------------------------------------- */
-    /* 主色调：浅薄荷灰绿，与 Excel 绿 accent (#107c41) 同色系，整体协调不刺眼 */
-    --bg:               #eef3ee;        /* 主背景 */
-    --surface:          #ffffff;        /* 卡片/容器保持纯白以突出 */
-    --surface-2:        #f6faf6;        /* 嵌套面板（如日志、column-chips 容器）比主背景更浅 */
-    --surface-hover:    #e5ebe5;        /* hover 比主背景深一档 */
-    --surface-pressed:  #dae1da;        /* pressed 再深一档 */
+    /* 主色调：浅薄荷灰绿，与 Excel 绿 accent (#107c41) 同色系，三档明度逐级递增 */
+    /* bg(最暗) → surface(卡片) → surface-2(嵌套) → 让卡片自带色调而非纯白 */
+    --bg:               #eef3ee;        /* 主背景：薄荷灰绿 */
+    --surface:          #f7faf6;        /* 卡片：薄荷调微白（不再纯白），跟 bg 同色系 */
+    --surface-2:        #fbfdfb;        /* 嵌套面板：最浅档，几乎接近白但仍带绿调 */
+    --surface-hover:    #e3eae3;        /* hover 比 bg 深一档 */
+    --surface-pressed:  #d6dfd6;        /* pressed 再深一档 */
     --surface-inverse:  #201f1e;        /* 反色面板（极少用） */
 
     /* Borders ----------------------------------------------------- */
-    --border:           #e1dfdd;        /* Fluent neutralQuaternaryAlt */
-    --border-strong:    #c8c6c4;
+    /* 边框微调成薄荷灰，跟 surface 系一致；不再用 Fluent 中性灰 */
+    --border:           #d9e1d9;
+    --border-strong:    #b8c4b8;
     --border-focus:     var(--accent);
-    --divider:          #edebe9;
+    --divider:          #e3eae3;
 
     /* Text -------------------------------------------------------- */
     --text:             #201f1e;        /* 不用纯黑，Fluent neutralPrimary */
