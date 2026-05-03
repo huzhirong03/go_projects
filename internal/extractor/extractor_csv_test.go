@@ -89,6 +89,66 @@ func TestExtract_CSV_PerKeyword(t *testing.T) {
 	}
 }
 
+// per_source 对 CSV 源走 exportOneCSV（流式 StreamWriter），不调 zip 手术。
+func TestExtract_CSV_PerSource(t *testing.T) {
+	csv := tempCSV(t, "x.csv",
+		"name,grade\nalice,1st\nbob,2nd\ncarol,1st\n",
+	)
+	outDir := t.TempDir()
+	task := core.ExtractTask{
+		Keywords:      []string{"1st"},
+		MatchMode:     core.MatchExact | core.MatchContains,
+		HeaderRow:     1,
+		Output:        core.OutputPerSource,
+		OutputDir:     outDir,
+		SearchAllCols: true,
+	}
+	files, err := ScanFile(csv, 1, nil)
+	if err != nil {
+		t.Fatalf("ScanFile: %v", err)
+	}
+	res, err := ExtractUnits(context.Background(), task, files, nil)
+	if err != nil {
+		t.Fatalf("ExtractUnits: %v", err)
+	}
+	if res.RowsMatched != 2 {
+		t.Fatalf("RowsMatched=%d want=2", res.RowsMatched)
+	}
+	if len(res.OutputFiles) != 1 {
+		t.Fatalf("OutputFiles=%v", res.OutputFiles)
+	}
+}
+
+// merged 含 CSV 源时退化到 finalizeStreaming 流式合并路径。
+func TestExtract_CSV_Merged_TwoFiles(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.csv")
+	b := filepath.Join(dir, "b.csv")
+	_ = os.WriteFile(a, []byte("name,grade\nalice,1st\n"), 0o644)
+	_ = os.WriteFile(b, []byte("name,grade\nbob,1st\ncarol,2nd\n"), 0o644)
+	outDir := t.TempDir()
+
+	task := core.ExtractTask{
+		FolderPath:    dir,
+		Keywords:      []string{"1st"},
+		MatchMode:     core.MatchExact | core.MatchContains,
+		HeaderRow:     1,
+		Output:        core.OutputMerged,
+		OutputDir:     outDir,
+		SearchAllCols: true,
+	}
+	res, err := Extract(context.Background(), task, nil)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	if res.RowsMatched != 2 {
+		t.Fatalf("RowsMatched=%d want=2", res.RowsMatched)
+	}
+	if len(res.OutputFiles) != 1 {
+		t.Fatalf("OutputFiles=%v", res.OutputFiles)
+	}
+}
+
 // Extract() 入口：文件夹含 CSV 能被发现并跑完 per_keyword 通路。
 func TestExtract_CSV_FolderScan_PerKeyword(t *testing.T) {
 	dir := t.TempDir()

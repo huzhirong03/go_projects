@@ -34,10 +34,14 @@ type perSourceWriter struct {
 }
 
 // perSourceHits 单个源文件的累计命中。
+// xlsx 源走 zip 手术：只需记录 sheetRows（行号）。
+// csv 源走流式降级：需要记录完整行内容（csvRows），没有 sheet 概念。
 type perSourceHits struct {
 	path      string           // 源文件路径
 	sheetRows map[string][]int // sheet 名 -> 命中的 1-based 源行号列表（可能有重复，内部会去重）
 	picCount  int              // 命中行包含的图片数（不触发迁移，仅用于统计）
+	csvRows   []MatchedRow     // 仅 csv 源使用：需要整行内容来流式写出，不走 zip 手术
+	csvSchema *FileSchema      // 仅 csv 源使用：用于列宽/列名（复用统一 schema 逻辑）
 }
 
 func newPerSourceWriter(outDir string, headerRow int, sheets []string, prefix string) *perSourceWriter {
@@ -59,11 +63,18 @@ func (p *perSourceWriter) Begin(schema *UnifiedSchema) error {
 }
 
 // EmitRow 仅累积命中信息；真正的文件操作在 Finalize 里做。
+// xlsx 源：记录行号，Finalize 时用 zip 手术按行过滤；
+// csv 源：记录整行内容 + schema，Finalize 时流式写纯数据 xlsx。
 func (p *perSourceWriter) EmitRow(row MatchedRow, fs *FileSchema) error {
 	h, ok := p.hits[row.SourceFile]
 	if !ok {
 		h = &perSourceHits{path: row.SourceFile, sheetRows: map[string][]int{}}
 		p.hits[row.SourceFile] = h
+	}
+	if core.DetectSourceKind(row.SourceFile) == core.SourceCSV {
+		h.csvRows = append(h.csvRows, row)
+		h.csvSchema = fs
+		return nil
 	}
 	sheet := fs.File.SheetName
 	h.sheetRows[sheet] = append(h.sheetRows[sheet], row.SourceRow)
@@ -125,10 +136,14 @@ func (p *perSourceWriter) Close() error { return nil }
 
 func (p *perSourceWriter) ImagesMigrated() int { return p.imgCount }
 
-// exportOne 生成单个源文件的输出：调 zip 手术一次性完成
-// “只保留命中 sheet，每个 sheet 仅保留表头行 + 命中行”。
+// exportOne 生成单个源文件的输出：
+//   - xlsx 源：走 zip 手术（CloneAndExtractZipMulti），保留样式/图片/合并等。
+//   - csv 源：走流式 StreamWriter（exportOneCSV），输出纯数据 xlsx。
 func (p *perSourceWriter) exportOne(h *perSourceHits) (string, error) {
-	// 目标路径
+	if core.DetectSourceKind(h.path) == core.SourceCSV {
+		return p.exportOneCSV(h)
+	}
+
 	base := filepath.Base(h.path)
 	stem := strings.TrimSuffix(base, filepath.Ext(base))
 	fname := sanitizeFileName(p.prefix+stem) + "_已提取_" + p.ts + ".xlsx"
@@ -145,8 +160,43 @@ func (p *perSourceWriter) exportOne(h *perSourceHits) (string, error) {
 		keepSheetRows[sheet] = excelio.SortedUnique(keep)
 	}
 
-	// 一次性 zip 手术：复制 + 按 sheet/行 模板过滤 + 错误时自动清半成品
 	if err := excelio.CloneAndExtractZipMulti(h.path, outPath, keepSheetRows); err != nil {
+		return "", err
+	}
+	return outPath, nil
+}
+
+// exportOneCSV 把一个 CSV 源的命中行写成纯数据 xlsx。
+// 没有样式/图片/合并单元格（CSV 自身就没有），表头取 schema.Headers。
+func (p *perSourceWriter) exportOneCSV(h *perSourceHits) (string, error) {
+	base := filepath.Base(h.path)
+	stem := strings.TrimSuffix(base, filepath.Ext(base))
+	fname := sanitizeFileName(p.prefix+stem) + "_已提取_" + p.ts + ".xlsx"
+	outPath := filepath.Join(p.outDir, fname)
+
+	const sheet = "结果"
+	out, err := openOutput(outPath, sheet)
+	if err != nil {
+		return "", err
+	}
+	defer out.close()
+
+	// 表头：用 schema 里 CSV 文件的 Headers（探针阶段读过）。
+	var headers []string
+	if h.csvSchema != nil {
+		headers = h.csvSchema.File.Headers
+	}
+	if p.headerRow > 0 && len(headers) > 0 {
+		if err := out.writeHeader(headers); err != nil {
+			return "", err
+		}
+	}
+	for _, r := range h.csvRows {
+		if _, err := out.writeRow(r.Values, 0, 0); err != nil {
+			return "", err
+		}
+	}
+	if err := out.save(); err != nil {
 		return "", err
 	}
 	return outPath, nil

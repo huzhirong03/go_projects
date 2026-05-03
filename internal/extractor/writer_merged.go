@@ -42,16 +42,32 @@ func newMergedWriter(outDir, sheet, prefix string) *mergedWriter {
 func (m *mergedWriter) Begin(schema *UnifiedSchema) error { return nil }
 
 // EmitRow 仅累积命中信息；真正的文件操作在 Finalize 里做。
+// CSV 源不走 zip 手术，改用流式合并：额外缓存整行内容到 csvRows。
 func (m *mergedWriter) EmitRow(row MatchedRow, fs *FileSchema) error {
 	h, ok := m.hits[row.SourceFile]
 	if !ok {
 		h = &perSourceHits{path: row.SourceFile, sheetRows: map[string][]int{}}
 		m.hits[row.SourceFile] = h
 	}
+	if core.DetectSourceKind(row.SourceFile) == core.SourceCSV {
+		h.csvRows = append(h.csvRows, row)
+		h.csvSchema = fs
+		return nil
+	}
 	sheet := fs.File.SheetName
 	h.sheetRows[sheet] = append(h.sheetRows[sheet], row.SourceRow)
 	h.picCount += len(row.Pictures)
 	return nil
+}
+
+// hasCSVSource 是否含 CSV 源（决定 finalize 走流式还是 zip 手术路径）。
+func (m *mergedWriter) hasCSVSource() bool {
+	for path := range m.hits {
+		if core.DetectSourceKind(path) == core.SourceCSV {
+			return true
+		}
+	}
+	return false
 }
 
 // Finalize 选 primary（命中行最多的源）后调 zip 手术一次性合并。
@@ -66,6 +82,12 @@ func (m *mergedWriter) FinalizeWithPrompt(ctx context.Context, emitter core.Even
 func (m *mergedWriter) finalize(ctx context.Context, emitter core.EventEmitter) ([]string, error) {
 	if len(m.hits) == 0 {
 		return nil, nil
+	}
+	// 混合/纯 CSV 源时退化为流式合并，不走 zip 手术（CSV 不是 zip）。
+	// 代价：xlsx 源的样式/图片也会按流式输出失去保真；
+	// 选了 merged 且涉及 CSV 就接受这一点，需要保真请用 per_source。
+	if m.hasCSVSource() {
+		return m.finalizeStreaming(ctx, emitter)
 	}
 
 	// 按“在某个 sheet 里命中行最多”选 primary；同时记下每个源作代的 sheet。
