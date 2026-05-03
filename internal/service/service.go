@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -33,11 +34,20 @@ func NewService(factory EmitterFactory) *Service {
 	if factory == nil {
 		panic("service: factory must not be nil")
 	}
-	return &Service{
+	s := &Service{
 		factory:  factory,
 		broker:   newFilePromptBroker(),
 		registry: map[string]context.CancelFunc{},
 	}
+	// 启动时一次性清掉过期的任务日志（best-effort，失败不影响主流程）。
+	// 异步跑，避免阻塞首屏：磁盘扫描可能要几十毫秒。
+	go func() {
+		defer func() { _ = recover() }() // 防御：极端情况下 ReadDir 触发 panic
+		if n, freed := CleanupOldTaskLogs(); n > 0 {
+			log.Printf("[STARTUP] cleaned %d old task logs (freed %d bytes)", n, freed)
+		}
+	}()
+	return s
 }
 
 // newTaskID 生成单调递增 + 时间的 TaskID。
@@ -88,4 +98,10 @@ func (s *Service) RespondFileBlocked(promptID, action string) bool {
 	default:
 		return false
 	}
+}
+
+// LogsDirPath 返回当前日志目录的绝对路径，给前端"打开日志文件夹"按钮用。
+// 如果路径解析失败返回空串 + error（前端可显示给用户）。
+func (s *Service) LogsDirPath() (string, error) {
+	return LogsDir()
 }

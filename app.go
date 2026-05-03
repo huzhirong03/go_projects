@@ -104,3 +104,16 @@ func (a *App) ConfigPath() (string, error) { return a.svc.ConfigPath() }
 func (a *App) LogStartup(msg string) {
 	log.Printf("[STARTUP-FE] %s (Go now=%v)", msg, time.Since(procStart))
 }
+
+// OpenLogFolder 用系统资源管理器打开日志目录。前端"打开日志文件夹"按钮用。
+// 失败返回错误，前端可弹 toast。
+func (a *App) OpenLogFolder() error {
+	dir, err := a.svc.LogsDirPath()
+	if err != nil {
+		return err
+	}
+	return exec.Command("rundll32", "url.dll,FileProtocolHandler", dir).Start()
+}
+
+// LogsDirPath 返回日志目录路径字符串，给前端 toast 显示用（不弹窗，纯展示）。
+func (a *App) LogsDirPath() (string, error) { return a.svc.LogsDirPath() }

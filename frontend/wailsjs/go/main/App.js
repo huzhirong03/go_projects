@@ -26,6 +26,14 @@ export function LogStartup(arg1) {
   return window['go']['main']['App']['LogStartup'](arg1);
 }
 
+export function LogsDirPath() {
+  return window['go']['main']['App']['LogsDirPath']();
+}
+
+export function OpenLogFolder() {
+  return window['go']['main']['App']['OpenLogFolder']();
+}
+
 export function OpenPath(arg1) {
   return window['go']['main']['App']['OpenPath'](arg1);
 }
