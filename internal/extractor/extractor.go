@@ -34,6 +34,9 @@ func Extract(ctx context.Context, task core.ExtractTask, emitter core.EventEmitt
 	if len(files) == 0 {
 		return nil, core.New("NO_FILES", "文件夹内没有可处理的 Sheet（检查 .xlsx 文件 / Sheet 选择）")
 	}
+	// 大文件前置警告（不阻断业务）：把"将处理多大数据 / 大概等多久"提前告诉用户，
+	// 避免学员看到 UI 不动以为程序卡死。仅按"去重路径"统计，避免一个文件多 sheet 重复计入。
+	pipeline.SizeBanner(emitter, distinctFilePaths(files))
 	return ExtractUnits(ctx, task, files, emitter)
 }
 
@@ -408,6 +411,21 @@ func countDistinctPaths(units []FileInfo) int {
 		seen[u.Path] = struct{}{}
 	}
 	return len(seen)
+}
+
+// distinctFilePaths 返回 FileInfo 列表中去重后的 Path 列表，保持首次出现顺序。
+// 给 SizeBanner 等"按文件而非按 Sheet"统计的场景用。
+func distinctFilePaths(units []FileInfo) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(units))
+	for _, u := range units {
+		if _, ok := seen[u.Path]; ok {
+			continue
+		}
+		seen[u.Path] = struct{}{}
+		out = append(out, u.Path)
+	}
+	return out
 }
 
 // readRowFormulas 查询某一行所有 cell 的公式，返回与 cells 平行的切片。
