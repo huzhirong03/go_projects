@@ -83,14 +83,18 @@ const needsHeader = computed(() => form.mode !== SPLIT_BY_SHEET)
 // CSV 源识别：单文件拆分看后缀即可。
 const hasCSVSource = computed(() => /\.csv$/i.test(form.sourcePath || ''))
 
-// inplace 控件可见性：xlsx 源就显示（即使 by_sheet 也显示，但按钮 disabled）
-// inplace 实际可用性：xlsx 源 + 不是 by_sheet 模式（by_sheet inplace 语义为 0）
-const inplaceVisible = computed(() =>
-    !!form.sourcePath && !/\.csv$/i.test(form.sourcePath)
-)
+// 单文件拆分始终显示"输出目标"条带，避免用户没选源时以为功能缺失。
+// inplace 实际可用：选了 xlsx 源 + 不是 by_sheet 模式（by_sheet 下源 sheet 已经是结果，
+// 再追加新 sheet 没意义；CSV 源不支持 inplace）。
 const inplaceAvailable = computed(() =>
-    inplaceVisible.value && form.mode !== SPLIT_BY_SHEET
+    !!form.sourcePath && !/\.csv$/i.test(form.sourcePath) && form.mode !== SPLIT_BY_SHEET
 )
+const inplaceDisabledReason = computed(() => {
+    if (!form.sourcePath) return '请先选择源文件'
+    if (/\.csv$/i.test(form.sourcePath)) return 'CSV 源不支持写回；请用新文件输出'
+    if (form.mode === SPLIT_BY_SHEET) return '按 Sheet 拆分时不可用：源里每个 Sheet 已经是结果。请改用按行数 / 列值 / 关键词。'
+    return ''
+})
 const isInplace = computed(() => inplaceAvailable.value && form.outputTarget === 'inplace_sheets')
 
 watch(inplaceAvailable, (v) => {
@@ -206,7 +210,7 @@ async function submit() {
                     <span class="field-hint">结果会以新 Sheet 形式写回源文件，无需输出目录</span>
                 </div>
             </div>
-            <div v-if="inplaceVisible" class="strip strip-inline" style="margin-top:8px">
+            <div class="strip strip-inline" style="margin-top:8px">
                 <span class="strip-title">输出目标</span>
                 <div class="seg" role="tablist">
                     <button type="button" :class="['seg-btn', { active: form.outputTarget === 'new_files' }]"
@@ -214,7 +218,7 @@ async function submit() {
                     <button type="button"
                             :class="['seg-btn', { active: form.outputTarget === 'inplace_sheets', disabled: !inplaceAvailable }]"
                             :disabled="!inplaceAvailable"
-                            :title="!inplaceAvailable ? '按 Sheet 拆分时不可用：源里每个 Sheet 已经是结果，无需再追加新 Sheet。请改用按行数 / 列值 / 关键词。' : ''"
+                            :title="inplaceDisabledReason"
                             @click="inplaceAvailable && (form.outputTarget = 'inplace_sheets')">📑 写回源文件新 Sheet</button>
                 </div>
                 <label v-if="isInplace" class="keep-images" style="margin-left:auto">

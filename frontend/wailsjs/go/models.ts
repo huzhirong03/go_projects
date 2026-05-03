@@ -14,6 +14,10 @@ export namespace service {
 	    preserveImages: boolean;
 	    sheetNames: string[];
 	    filenamePrefix: string;
+	    csvEncoding: string;
+	    csvDelimiter: string;
+	    outputTarget: string;
+	    backupSource: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ExtractRequest(source);
@@ -34,6 +38,10 @@ export namespace service {
 	        this.preserveImages = source["preserveImages"];
 	        this.sheetNames = source["sheetNames"];
 	        this.filenamePrefix = source["filenamePrefix"];
+	        this.csvEncoding = source["csvEncoding"];
+	        this.csvDelimiter = source["csvDelimiter"];
+	        this.outputTarget = source["outputTarget"];
+	        this.backupSource = source["backupSource"];
 	    }
 	}
 	export class FilePreview {
@@ -84,6 +92,10 @@ export namespace service {
 	    searchAllCols: boolean;
 	    searchColumns: string[];
 	    strategy: string;
+	    csvEncoding: string;
+	    csvDelimiter: string;
+	    outputTarget: string;
+	    backupSource: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new SplitRequest(source);
@@ -106,6 +118,10 @@ export namespace service {
 	        this.searchAllCols = source["searchAllCols"];
 	        this.searchColumns = source["searchColumns"];
 	        this.strategy = source["strategy"];
+	        this.csvEncoding = source["csvEncoding"];
+	        this.csvDelimiter = source["csvDelimiter"];
+	        this.outputTarget = source["outputTarget"];
+	        this.backupSource = source["backupSource"];
 	    }
 	}
 	export class TaskHandle {
