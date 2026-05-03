@@ -55,6 +55,12 @@ func ExtractUnits(
 	emitter.Log(core.LogInfo, fmt.Sprintf("共发现 %d 个 Sheet（来自 %d 个文件）",
 		len(files), countDistinctPaths(files)))
 
+	// inplace 分支：把结果作为新 Sheet 写回源文件，不产出新文件。
+	// 仅单文件 + xlsx 源生效，文件夹 / CSV 在此拦截。
+	if task.OutputTarget == core.OutputTargetInplaceSheets {
+		return extractInplace(ctx, task, files, emitter)
+	}
+
 	// 2. 统一 schema
 	schema, err := BuildSchema(files, task.HeaderRow)
 	if err != nil {
@@ -341,7 +347,8 @@ func validateTask(t core.ExtractTask) error {
 
 // validateTaskRelaxed 允许 FolderPath 为空，用于 ExtractUnits（文件已由调用方提供）。
 func validateTaskRelaxed(t core.ExtractTask) error {
-	if t.OutputDir == "" {
+	// inplace 模式结果写回源文件，不需要 OutputDir
+	if t.OutputTarget != core.OutputTargetInplaceSheets && t.OutputDir == "" {
 		return core.New("INVALID_TASK", "OutputDir 不能为空")
 	}
 	if len(t.Keywords) == 0 {
