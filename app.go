@@ -62,11 +62,15 @@ func (a *App) ChooseFolder(title string) (string, error) {
 	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{Title: title})
 }
 
-// ChooseFile 弹出原生文件选择器，默认过滤 .xlsx。
+// ChooseFile 弹出原生文件选择器，过滤 .xlsx / .xlsm / .csv。
 func (a *App) ChooseFile(title string) (string, error) {
 	return runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
-		Title:   title,
-		Filters: []runtime.FileFilter{{DisplayName: "Excel 文件 (*.xlsx)", Pattern: "*.xlsx"}},
+		Title: title,
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Excel / CSV (*.xlsx;*.xlsm;*.csv)", Pattern: "*.xlsx;*.xlsm;*.csv"},
+			{DisplayName: "Excel (*.xlsx;*.xlsm)", Pattern: "*.xlsx;*.xlsm"},
+			{DisplayName: "CSV (*.csv)", Pattern: "*.csv"},
+		},
 	})
 }
 

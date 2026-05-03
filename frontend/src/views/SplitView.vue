@@ -26,6 +26,9 @@ const defaults = {
     keywordsRaw: '',
     exact: true,
     contains: true,
+    // CSV 可选参数（仅 by_keyword + .csv 生效，后端同步序）
+    csvEncoding: '',
+    csvDelimiter: '',
     pinyin: true,
     searchAllCols: true,
     searchColumns: [],
@@ -74,6 +77,8 @@ onMounted(async () => {
 
 // 当前模式是否需要表头（by_sheet 不需要）。
 const needsHeader = computed(() => form.mode !== SPLIT_BY_SHEET)
+// CSV 源识别：单文件拆分看后缀即可。
+const hasCSVSource = computed(() => /\.csv$/i.test(form.sourcePath || ''))
 
 // 选完文件 / 改了 headerRow → 自动预扫描。
 watch(() => [form.sourcePath, form.headerRow], async ([path]) => {
@@ -152,6 +157,8 @@ async function submit() {
             searchAllCols: form.searchAllCols,
             searchColumns: form.searchAllCols ? [] : form.searchColumns,
             strategy: form.strategy,
+            csvEncoding: form.csvEncoding,
+            csvDelimiter: form.csvDelimiter,
         })
         startTask(handle.taskId)
         // 任务完成后由 watch(task.result/error) 自动滚到底部
@@ -171,7 +178,7 @@ async function submit() {
         <Collapsible title="路径配置" :open="!form.foldPaths" @update:open="v => form.foldPaths = !v">
             <div class="row-2col">
                 <PathPicker v-model="form.sourcePath" mode="file"
-                            label="源文件" placeholder="选择要拆分的 .xlsx" />
+                            label="源文件" placeholder="选择要拆分的 .xlsx / .csv" />
                 <PathPicker v-model="form.outputDir" mode="folder"
                             label="输出目录" placeholder="拆分结果输出到此" />
             </div>
@@ -262,6 +269,29 @@ async function submit() {
             <label class="keep-images"><input type="checkbox" v-model="form.preserveImages" /> 保留图片</label>
         </div>
 
+        <div v-if="hasCSVSource && form.mode === SPLIT_BY_KEYWORD" class="strip csv-strip">
+            <span class="strip-title">CSV</span>
+            <label class="csv-field">编码
+                <select v-model="form.csvEncoding" class="name-select">
+                    <option value="">自动识别</option>
+                    <option value="utf-8">UTF-8</option>
+                    <option value="gbk">GBK</option>
+                    <option value="gb18030">GB18030</option>
+                    <option value="big5">Big5</option>
+                    <option value="utf-16">UTF-16</option>
+                </select>
+            </label>
+            <label class="csv-field">分隔符
+                <select v-model="form.csvDelimiter" class="name-select">
+                    <option value="">自动推断</option>
+                    <option value=",">逗号 ,</option>
+                    <option value=";">分号 ;</option>
+                    <option value="\t">制表符 \t</option>
+                    <option value="|">竖线 |</option>
+                </select>
+            </label>
+        </div>
+
         <div class="actions">
             <button class="btn btn-primary" :disabled="task.running" @click="submit">
                 {{ task.running ? '运行中…' : '开始拆分' }}
@@ -319,6 +349,19 @@ async function submit() {
     color: var(--text-secondary);
     display: inline-flex; align-items: center; gap: 6px;
     cursor: pointer; font-size: 13px;
+}
+.csv-field {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-secondary);
+    font-size: 13px;
+}
+.name-select {
+    height: 28px;
+    padding: 0 8px;
+    font-size: 13px;
+    min-width: 130px;
 }
 
 .card {

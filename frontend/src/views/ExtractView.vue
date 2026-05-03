@@ -35,6 +35,9 @@ const defaults = {
     strategy: OUTPUT_PER_KEYWORD,
     preserveImages: true,
     filenamePrefix: '',        // '' = 默认；'搜索_' = 搜索_关键词
+    // CSV 可选参数；空 = 后端自动推断
+    csvEncoding: '',
+    csvDelimiter: '',
     // 折叠状态（默认全展开）
     foldPaths: false,
     foldKeywords: false,
@@ -52,6 +55,13 @@ const sourcePath = computed({
         if (form.sourceMode === 'file') form.filePath = v
         else form.folderPath = v
     },
+})
+
+// 源中是否涉及 CSV（单文件看后缀；文件夹看预扫描结果里有没有 .csv 馈送者）。
+// 这里保守估计：单文件模式靠后缀、文件夹模式靠 firstFile 后缀。
+const hasCSVSource = computed(() => {
+    if (form.sourceMode === 'file') return /\.csv$/i.test(form.filePath || '')
+    return /\.csv$/i.test(previewState.firstFile || '')
 })
 
 // 任务完成（成功或失败）时，自动平滑滚到底部，让用户看到结果总结/错误。
@@ -180,6 +190,8 @@ async function submit() {
             sheetNames: previewState.sheets.length === form.sheetNames.length
                 ? []
                 : form.sheetNames,
+            csvEncoding: form.csvEncoding,
+            csvDelimiter: form.csvDelimiter,
         })
         startTask(handle.taskId)
         // 注意：不在这里立刻滚动，结果还没生成滚下去也是空的。
@@ -203,7 +215,7 @@ async function submit() {
                             v-model:mode="form.sourceMode"
                             :allow-switch="true"
                             label="源数据"
-                            :placeholder="form.sourceMode === 'file' ? '选一个 .xlsx 文件' : '选含多个 Excel 的文件夹'" />
+                            :placeholder="form.sourceMode === 'file' ? '选一个 .xlsx / .csv 文件' : '选含多个 Excel / CSV 的文件夹'" />
                 <PathPicker v-model="form.outputDir" mode="folder"
                             label="输出目录" placeholder="结果会写到这个目录" />
             </div>
@@ -281,6 +293,28 @@ async function submit() {
                 </select>
                 <label class="keep-images"><input type="checkbox" v-model="form.preserveImages" /> 保留图片（跟随行）</label>
             </div>
+            <div v-if="hasCSVSource" class="strip-row csv-row">
+                <span class="strip-title">CSV</span>
+                <label class="csv-field">编码
+                    <select v-model="form.csvEncoding" class="name-select">
+                        <option value="">自动识别</option>
+                        <option value="utf-8">UTF-8</option>
+                        <option value="gbk">GBK</option>
+                        <option value="gb18030">GB18030</option>
+                        <option value="big5">Big5</option>
+                        <option value="utf-16">UTF-16</option>
+                    </select>
+                </label>
+                <label class="csv-field">分隔符
+                    <select v-model="form.csvDelimiter" class="name-select">
+                        <option value="">自动推断</option>
+                        <option value=",">逗号 ,</option>
+                        <option value=";">分号 ;</option>
+                        <option value="\t">制表符 \t</option>
+                        <option value="|">竖线 |</option>
+                    </select>
+                </label>
+            </div>
         </div>
 
         <div class="actions">
@@ -352,6 +386,14 @@ async function submit() {
     font-size: 13px;
     min-width: 160px;
 }
+.csv-field {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-secondary);
+    font-size: 13px;
+}
+.csv-field .name-select { min-width: 130px; }
 .strip-title {
     font-size: 13px;
     font-weight: 600;
