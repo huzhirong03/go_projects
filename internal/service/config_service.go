@@ -61,7 +61,9 @@ func dirIsWritable(dir string) bool {
 
 // configFilePath 决定本次读写用哪个路径：
 //   - 如果 exe 同目录的 config.json 已存在 → 用它（用户已绿色化）
-//   - 否则探测 exe 同目录是否可写 → 可写就用它（首次运行落地为绿色）
+//   - 否则探测 exe 同目录是否可写 →
+//     a) 先尝试从老 fallback (%APPDATA%) 迁移老 config 过来（升级路径）
+//     b) 然后用 exe 同目录（首次运行落地为绿色）
 //   - 都不行 → fallback 到 UserConfigDir
 func configFilePath() (string, error) {
 	if portable := portableConfigPath(); portable != "" {
@@ -69,13 +71,46 @@ func configFilePath() (string, error) {
 		if _, err := os.Stat(portable); err == nil {
 			return portable, nil
 		}
-		// 还没绿色 config，但 exe 同目录可写 → 落地成绿色
+		// 还没绿色 config，但 exe 同目录可写 → 升级逻辑：先迁移老配置，再落地
 		if dirIsWritable(filepath.Dir(portable)) {
+			if fb, err := fallbackConfigPath(); err == nil {
+				migrateConfigFromFallbackOnce(portable, fb)
+			}
 			return portable, nil
 		}
 	}
 	// 不可写（Program Files / 只读盘 / dev 模式 wails dev 拿不到稳定 exe 路径）
 	return fallbackConfigPath()
+}
+
+// migrateConfigFromFallbackOnce 一次性把老 fallback (%APPDATA%) 里的 config.json
+// 迁移到 exe 同目录的 portable 路径。仅在以下条件全部满足时执行：
+//  1. portable 路径**不存在**（避免覆盖已经绿色化的用户的最新配置）
+//  2. fallback 路径**存在**（这是用户从老版本升级上来）
+//  3. fallback 内容是合法 JSON（损坏的就别污染新位置）
+//
+// 静默失败：迁移本身是"锦上添花"，任何错误都不影响主流程，最坏后果是用户感觉
+// 配置丢了一次（跟没加迁移逻辑的体验一致）。
+//
+// 参数化两个路径是为了**可测**：测试可注入临时目录路径，避免污染真实 %APPDATA%。
+func migrateConfigFromFallbackOnce(portablePath, fallbackPath string) {
+	// 1) portable 已有 → 不迁移
+	if _, err := os.Stat(portablePath); err == nil {
+		return
+	}
+	// 2) 读老路径
+	data, err := os.ReadFile(fallbackPath)
+	if err != nil {
+		return // 老的也没有，正常的全新用户
+	}
+	// 3) 校验 JSON 合法
+	var any interface{}
+	if err := json.Unmarshal(data, &any); err != nil {
+		return
+	}
+	// 4) 写入 portable（mkdir 通常不需要，exe 同目录已存在）
+	_ = os.MkdirAll(filepath.Dir(portablePath), 0o755)
+	_ = os.WriteFile(portablePath, data, 0o644)
 }
 
 // LoadConfig 读取持久化的前端配置 JSON。
