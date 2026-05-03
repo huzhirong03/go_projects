@@ -47,7 +47,8 @@ func main() {
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
+		// 跟前端 --bg: #eef3ee 对齐，避免启动闪白/闪深色
+		BackgroundColour: &options.RGBA{R: 238, G: 243, B: 238, A: 255},
 		OnStartup:        app.startup,
 		Bind: []interface{}{
 			app,

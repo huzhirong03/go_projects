@@ -22,11 +22,13 @@ type App struct {
 func NewApp() *App { return &App{} }
 
 // startup 在 Wails 启动时注入 runtime context，用于 EventsEmit。
+// 顺便把窗口居中到主显示器，避免默认按屏幕左上角开。
 func (a *App) startup(ctx context.Context) {
 	t0 := time.Now()
 	log.Printf("[STARTUP] app.startup invoked, +%v since main", time.Since(procStart))
 	a.ctx = ctx
 	a.svc = service.NewService(service.NewWailsEmitterFactory(ctx))
+	runtime.WindowCenter(ctx)
 	log.Printf("[STARTUP] app.startup done in %v, +%v since main", time.Since(t0), time.Since(procStart))
 }
 
