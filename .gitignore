@@ -1,0 +1,18 @@
+build/bin
+node_modules
+frontend/dist
+
+# Go 构建产物
+*.exe
+
+# 运行时产生的测试输出目录，不污染仓库
+testdata_*_out/
+testdata_out*/
+
+# Excel 打开时产生的临时锁文件（以 ~$ 开头）
+~$*
+**/~$*
+
+# 本机 IDE 文件
+.idea/
+.vscode/

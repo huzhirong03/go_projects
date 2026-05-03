@@ -1,0 +1,74 @@
+/* 全局样式。组件级样式用 <style scoped>。 */
+* { box-sizing: border-box; }
+
+html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background-color: #0f172a;
+    color: #e2e8f0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei",
+        "PingFang SC", "Roboto", "Helvetica Neue", sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+#app { min-height: 100vh; }
+
+/* 通用按钮 */
+.btn {
+    padding: 8px 16px;
+    border-radius: 6px;
+    border: none;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s ease, transform 0.05s ease;
+}
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-primary { background: #2563eb; color: #fff; }
+.btn-primary:hover:not(:disabled) { background: #1d4ed8; }
+
+.btn-secondary { background: #334155; color: #e2e8f0; }
+.btn-secondary:hover:not(:disabled) { background: #475569; }
+
+.btn-danger { background: #dc2626; color: #fff; }
+.btn-danger:hover:not(:disabled) { background: #b91c1c; }
+
+.btn-link {
+    background: transparent;
+    color: #60a5fa;
+    padding: 2px 8px;
+    text-decoration: underline;
+    font-size: 12px;
+}
+.btn-link:hover { color: #93c5fd; }
+
+/* 通用输入 */
+input[type="text"],
+input[type="number"],
+textarea {
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 7px 10px;
+    color: #e2e8f0;
+    font-family: inherit;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.15s ease;
+}
+input[type="text"]:focus,
+input[type="number"]:focus,
+textarea:focus { border-color: #2563eb; }
+textarea { resize: vertical; font-family: inherit; }
+
+input[type="checkbox"], input[type="radio"] { accent-color: #2563eb; cursor: pointer; }
+
+/* 滚动条（Webkit） */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #475569; }
