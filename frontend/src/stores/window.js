@@ -4,6 +4,7 @@
 import {
     WindowSetSize, WindowGetSize, WindowIsNormal, WindowCenter,
 } from '../../wailsjs/runtime/runtime'
+import { LogStartup } from '../../wailsjs/go/main/App'
 import { getViewConfig, saveViewConfig } from './config.js'
 
 const VIEW_KEY = 'window'
@@ -27,13 +28,24 @@ function clamp(n, lo, hi) {
 export async function restoreWindowState() {
     try {
         const saved = await getViewConfig(VIEW_KEY)
+        // 诊断日志：通过 LogStartup 写到后端 startup.log，跟 Go 端时序对齐
+        try {
+            await LogStartup(`[restoreWindowState] saved=${JSON.stringify(saved)} screen=${window.screen?.availWidth}x${window.screen?.availHeight}`)
+        } catch (_) {}
         const w = clamp(saved.width, MIN_W, maxW())
         const h = clamp(saved.height, MIN_H, maxH())
-        if (w && h) WindowSetSize(w, h)
+        if (w && h) {
+            WindowSetSize(w, h)
+            try { await LogStartup(`[restoreWindowState] WindowSetSize(${w}, ${h}) called`) } catch (_) {}
+        } else {
+            try { await LogStartup(`[restoreWindowState] WindowSetSize SKIPPED (w=${w}, h=${h})`) } catch (_) {}
+        }
         // 不管有没有 SetSize，都做一次 Center：默认尺寸下也保证居中
         WindowCenter()
+        try { await LogStartup(`[restoreWindowState] WindowCenter() called`) } catch (_) {}
     } catch (e) {
         console.warn('restoreWindowState failed:', e)
+        try { await LogStartup(`[restoreWindowState] FAILED: ${e}`) } catch (_) {}
     }
 }
 
