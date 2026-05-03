@@ -18,6 +18,8 @@ export function PreviewFile(arg1:string,arg2:number):Promise<service.FilePreview
 
 export function PreviewFolder(arg1:string,arg2:number):Promise<service.HeaderPreview>;
 
+export function RespondFileBlocked(arg1:string,arg2:string):Promise<boolean>;
+
 export function SaveConfig(arg1:string):Promise<void>;
 
 export function StartExtract(arg1:service.ExtractRequest):Promise<service.TaskHandle>;

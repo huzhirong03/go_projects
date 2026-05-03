@@ -214,6 +214,59 @@ func TestExtract_PerSource(t *testing.T) {
 	}
 }
 
+func TestAskFileOpenDecision_FileOccupied(t *testing.T) {
+	err := core.Wrap("EXCEL_OPEN_FAILED", "打开 Excel 失败: demo.xlsx", os.ErrPermission)
+	emitter := &promptTestEmitter{choice: core.FileBlockedRetry}
+	if got := askFileOpenDecision(context.Background(), emitter, "demo.xlsx", err); got != fileOpenRetry {
+		t.Fatalf("decision=%v, want retry", got)
+	}
+	if emitter.calls != 1 {
+		t.Fatalf("prompt calls=%d, want 1", emitter.calls)
+	}
+}
+
+func TestAskFileOpenDecision_NotFileOccupied(t *testing.T) {
+	err := core.New("BAD_XLSX", "文件格式错误")
+	emitter := &promptTestEmitter{choice: core.FileBlockedRetry}
+	if got := askFileOpenDecision(context.Background(), emitter, "bad.xlsx", err); got != fileOpenAbort {
+		t.Fatalf("decision=%v, want abort", got)
+	}
+	if emitter.calls != 0 {
+		t.Fatalf("prompt calls=%d, want 0", emitter.calls)
+	}
+}
+
+func TestAskOfficeLockDecision(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "供应商D_清单.xlsx")
+	lockPath := filepath.Join(dir, "~$供应商D_清单.xlsx")
+	if err := os.WriteFile(lockPath, []byte("lock"), 0o644); err != nil {
+		t.Fatalf("write lock: %v", err)
+	}
+	emitter := &promptTestEmitter{choice: core.FileBlockedSkip}
+	if got := askOfficeLockDecision(context.Background(), emitter, path); got != fileOpenSkip {
+		t.Fatalf("decision=%v, want skip", got)
+	}
+	if emitter.calls != 1 {
+		t.Fatalf("prompt calls=%d, want 1", emitter.calls)
+	}
+}
+
+type promptTestEmitter struct {
+	choice core.FileBlockedChoice
+	calls  int
+}
+
+func (p *promptTestEmitter) Progress(core.Progress) {}
+func (p *promptTestEmitter) Log(string, string)     {}
+func (p *promptTestEmitter) Done(any)               {}
+func (p *promptTestEmitter) Error(error)            {}
+
+func (p *promptTestEmitter) PromptFileBlocked(ctx context.Context, req core.FileBlockedRequest) core.FileBlockedChoice {
+	p.calls++
+	return p.choice
+}
+
 // verifyOutput 简单校验输出文件能被 excelize 打开且含表头。
 func verifyOutput(t *testing.T, path string) {
 	t.Helper()

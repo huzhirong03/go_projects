@@ -5,6 +5,7 @@ export const EVENT_PROGRESS = 'task:progress'
 export const EVENT_LOG = 'task:log'
 export const EVENT_DONE = 'task:done'
 export const EVENT_ERROR = 'task:error'
+export const EVENT_FILE_BLOCKED = 'task:file-blocked'
 
 export const LOG_INFO = 'info'
 export const LOG_WARN = 'warn'

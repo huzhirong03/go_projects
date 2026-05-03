@@ -1,9 +1,12 @@
 package extractor
 
 import (
+	"archive/zip"
+	"context"
 	"path/filepath"
 	"sort"
 
+	"excel-master/internal/core"
 	"excel-master/internal/excelio"
 )
 
@@ -51,18 +54,20 @@ func (m *mergedWriter) EmitRow(row MatchedRow, fs *FileSchema) error {
 
 // Finalize 选 primary（命中行最多的源）后调 zip 手术一次性合并。
 func (m *mergedWriter) Finalize() ([]string, error) {
+	return m.finalize(nil, nil)
+}
+
+func (m *mergedWriter) FinalizeWithPrompt(ctx context.Context, emitter core.EventEmitter) ([]string, error) {
+	return m.finalize(ctx, emitter)
+}
+
+func (m *mergedWriter) finalize(ctx context.Context, emitter core.EventEmitter) ([]string, error) {
 	if len(m.hits) == 0 {
 		return nil, nil
 	}
 
 	// 按“在某个 sheet 里命中行最多”选 primary；同时记下每个源作代的 sheet。
-	type srcPlan struct {
-		path   string
-		sheet  string
-		rows   []int
-		picSrc int
-	}
-	plans := make([]srcPlan, 0, len(m.hits))
+	plans := make([]mergePlan, 0, len(m.hits))
 	for _, h := range m.hits {
 		bestSheet := ""
 		bestRows := []int(nil)
@@ -72,7 +77,15 @@ func (m *mergedWriter) Finalize() ([]string, error) {
 				bestRows = rs
 			}
 		}
-		plans = append(plans, srcPlan{path: h.path, sheet: bestSheet, rows: bestRows, picSrc: h.picCount})
+		plans = append(plans, mergePlan{path: h.path, sheet: bestSheet, rows: bestRows, picSrc: h.picCount})
+	}
+	filtered, err := filterMergePlans(ctx, emitter, plans)
+	if err != nil {
+		return nil, err
+	}
+	plans = filtered
+	if len(plans) == 0 {
+		return nil, nil
 	}
 
 	// 选 primary：hits 最多优先，同位按路径字典序，保证可重复。
@@ -98,6 +111,7 @@ func (m *mergedWriter) Finalize() ([]string, error) {
 		KeepRows:  excelio.SortedUnique(primaryKeep),
 	}
 
+	usedPicCount := primary.picSrc
 	// 其他源作为 secondaries，KeepRows 不含表头（表头从 primary 继承）。
 	var secs []excelio.MergeSource
 	for _, p := range plans[1:] {
@@ -110,16 +124,14 @@ func (m *mergedWriter) Finalize() ([]string, error) {
 			SheetName: p.sheet,
 			KeepRows:  excelio.SortedUnique(p.rows),
 		})
+		usedPicCount += p.picSrc
 	}
 
 	if err := excelio.CloneAndMergePreserved(ps, outPath, secs); err != nil {
 		return nil, err
 	}
 
-	// 统计迁移图片数：所有源的 picCount 加总
-	for _, h := range m.hits {
-		m.imgCount += h.picCount
-	}
+	m.imgCount += usedPicCount
 
 	return []string{outPath}, nil
 }
@@ -127,3 +139,56 @@ func (m *mergedWriter) Finalize() ([]string, error) {
 func (m *mergedWriter) Close() error { return nil }
 
 func (m *mergedWriter) ImagesMigrated() int { return m.imgCount }
+
+type mergePlan struct {
+	path   string
+	sheet  string
+	rows   []int
+	picSrc int
+}
+
+func filterMergePlans(ctx context.Context, emitter core.EventEmitter, plans []mergePlan) ([]mergePlan, error) {
+	out := make([]mergePlan, 0, len(plans))
+	for _, p := range plans {
+		for {
+			skipFile := false
+			switch askOfficeLockDecision(ctx, emitter, p.path) {
+			case fileOpenRetry:
+				continue
+			case fileOpenSkip:
+				emitter.Log(core.LogWarn, "已跳过正在打开的文件: "+p.path)
+				skipFile = true
+			case fileOpenCancel:
+				return nil, core.ErrCanceled
+			}
+			if skipFile {
+				break
+			}
+			err := probeZipReadable(p.path)
+			if err == nil {
+				out = append(out, p)
+				break
+			}
+			switch askFileOpenDecision(ctx, emitter, p.path, err) {
+			case fileOpenRetry:
+				continue
+			case fileOpenSkip:
+				emitter.Log(core.LogWarn, "已跳过无法读取的文件: "+p.path)
+			case fileOpenAbort:
+				return nil, err
+			default:
+				return nil, core.ErrCanceled
+			}
+			break
+		}
+	}
+	return out, nil
+}
+
+func probeZipReadable(path string) error {
+	zr, err := zip.OpenReader(path)
+	if err != nil {
+		return core.Wrap("SRC_OPEN_FAILED", "打开源 xlsx 失败: "+path, err)
+	}
+	return zr.Close()
+}

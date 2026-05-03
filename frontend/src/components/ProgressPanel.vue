@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue'
-import { task, resetTask } from '../stores/task.js'
-import { cancelTask, openPath } from '../api/index.js'
+import { task, resetTask, clearFileBlocked } from '../stores/task.js'
+import { cancelTask, openPath, respondFileBlocked } from '../api/index.js'
 import { showToast } from '../stores/toast.js'
 
 const percent = computed(() => {
@@ -30,6 +30,17 @@ async function openOutput(path) {
         await openPath(path)
     } catch (e) {
         showToast('打开失败：' + (e?.message || e), 'error')
+    }
+}
+
+async function replyFileBlocked(action) {
+    if (!task.fileBlocked?.promptId) return
+    try {
+        const ok = await respondFileBlocked(task.fileBlocked.promptId, action)
+        if (!ok) showToast('操作已失效，请等待任务状态刷新', 'warn')
+        clearFileBlocked()
+    } catch (e) {
+        showToast('操作失败：' + (e?.message || e), 'error')
     }
 }
 </script>
@@ -98,6 +109,23 @@ async function openOutput(path) {
             <button v-if="!task.running && (task.result || task.error)" class="btn btn-secondary" @click="doReset">
                 清空
             </button>
+        </div>
+
+        <div v-if="task.fileBlocked" class="modal-mask">
+            <div class="file-blocked-dialog">
+                <div class="dialog-title">文件正在被占用</div>
+                <div class="dialog-text">
+                    检测到文件暂时无法读取，可能正在被 Excel/WPS 打开。
+                    请先保存并关闭该文件，然后点击“重试”继续。
+                </div>
+                <div class="blocked-path">{{ task.fileBlocked.path }}</div>
+                <div class="dialog-detail">{{ task.fileBlocked.message }}</div>
+                <div class="dialog-actions">
+                    <button class="btn btn-primary" @click="replyFileBlocked('retry')">重试</button>
+                    <button class="btn btn-secondary" @click="replyFileBlocked('skip')">跳过</button>
+                    <button class="btn btn-danger" @click="replyFileBlocked('cancel')">取消任务</button>
+                </div>
+            </div>
         </div>
     </div>
 </template>
@@ -168,4 +196,44 @@ async function openOutput(path) {
 .output-item { display: flex; gap: 8px; align-items: center; }
 .output-path { flex: 1; font-family: monospace; font-size: 12px; color: #93c5fd; word-break: break-all; }
 .progress-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.modal-mask {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: rgba(15, 23, 42, 0.72);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+.file-blocked-dialog {
+    width: min(560px, 100%);
+    background: #1f2738;
+    border: 1px solid #f59e0b;
+    border-radius: 10px;
+    padding: 18px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.35);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.dialog-title { font-size: 16px; font-weight: 700; color: #fde68a; }
+.dialog-text { color: #e2e8f0; font-size: 13px; line-height: 1.6; }
+.blocked-path {
+    background: #0f172a;
+    border-radius: 6px;
+    padding: 8px;
+    color: #93c5fd;
+    font-size: 12px;
+    font-family: Consolas, monospace;
+    word-break: break-all;
+}
+.dialog-detail {
+    max-height: 120px;
+    overflow: auto;
+    color: #94a3b8;
+    font-size: 12px;
+    white-space: pre-wrap;
+}
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 </style>

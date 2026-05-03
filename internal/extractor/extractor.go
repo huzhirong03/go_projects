@@ -25,7 +25,7 @@ func Extract(ctx context.Context, task core.ExtractTask, emitter core.EventEmitt
 
 	// 1. 扫描（每个文件按 Sheet 展开为多个单元，受 task.SheetNames 过滤）
 	emitter.Progress(core.Progress{Stage: "scanning", Message: "扫描文件夹"})
-	files, err := ScanFolder(task.FolderPath, task.HeaderRow, task.SheetNames)
+	files, err := scanFolderInteractive(ctx, task.FolderPath, task.HeaderRow, task.SheetNames, emitter)
 	if err != nil {
 		return nil, err
 	}
@@ -86,9 +86,13 @@ func ExtractUnits(
 	result := &Result{FilesScanned: countDistinctPaths(files)}
 	total := int64(len(schema.Files))
 	matchedPaths := map[string]bool{}
+	skippedPaths := map[string]bool{}
 	for fi, fs := range schema.Files {
 		if err := pipeline.CheckCancel(ctx); err != nil {
 			return nil, err
+		}
+		if skippedPaths[fs.File.Path] {
+			continue
 		}
 		emitter.Progress(core.Progress{
 			Stage:   "reading",
@@ -97,9 +101,13 @@ func ExtractUnits(
 			Message: fs.File.Path + " [" + fs.File.SheetName + "]",
 		})
 
-		matched, err := processFile(ctx, &fs, schema, eng, unifiedSearchCols, task, ow, emitter)
+		matched, skipped, err := processFile(ctx, &fs, schema, eng, unifiedSearchCols, task, ow, emitter)
 		if err != nil {
 			return nil, err
+		}
+		if skipped {
+			skippedPaths[fs.File.Path] = true
+			continue
 		}
 		if matched > 0 {
 			matchedPaths[fs.File.Path] = true
@@ -110,7 +118,12 @@ func ExtractUnits(
 
 	// 7. 落盘
 	emitter.Progress(core.Progress{Stage: "finalizing", Done: total, Total: total, Message: "写入输出文件"})
-	paths, err := ow.Finalize()
+	var paths []string
+	if pf, ok := ow.(PromptFinalizer); ok {
+		paths, err = pf.FinalizeWithPrompt(ctx, emitter)
+	} else {
+		paths, err = ow.Finalize()
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -132,10 +145,34 @@ func processFile(
 	task core.ExtractTask,
 	ow OutputWriter,
 	emitter core.EventEmitter,
-) (int, error) {
-	r, err := excelio.Open(fs.File.Path)
-	if err != nil {
-		return 0, err
+) (int, bool, error) {
+	var r *excelio.Reader
+	var err error
+	for {
+		switch askOfficeLockDecision(ctx, emitter, fs.File.Path) {
+		case fileOpenRetry:
+			continue
+		case fileOpenSkip:
+			emitter.Log(core.LogWarn, "已跳过正在打开的文件: "+fs.File.Path)
+			return 0, true, nil
+		case fileOpenCancel:
+			return 0, false, core.ErrCanceled
+		}
+		r, err = excelio.Open(fs.File.Path)
+		if err == nil {
+			break
+		}
+		switch askFileOpenDecision(ctx, emitter, fs.File.Path, err) {
+		case fileOpenRetry:
+			continue
+		case fileOpenSkip:
+			emitter.Log(core.LogWarn, "已跳过无法读取的文件: "+fs.File.Path)
+			return 0, true, nil
+		case fileOpenAbort:
+			return 0, false, err
+		default:
+			return 0, false, core.ErrCanceled
+		}
 	}
 	defer r.Close()
 
@@ -153,7 +190,7 @@ func processFile(
 
 	it, err := r.Iterate(fs.File.SheetName)
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
 	defer it.Close()
 
@@ -164,12 +201,12 @@ func processFile(
 		}
 		if it.RowNum()%progressEvery == 0 {
 			if err := pipeline.CheckCancel(ctx); err != nil {
-				return matched, err
+				return matched, false, err
 			}
 		}
 		cells, err := it.Columns()
 		if err != nil {
-			return matched, err
+			return matched, false, err
 		}
 		kw := eng.MatchRow(cells, fileSearchCols)
 		if kw == "" {
@@ -195,14 +232,14 @@ func processFile(
 			Pictures:   pics,
 			RowHeight:  height,
 		}, fs); err != nil {
-			return matched, err
+			return matched, false, err
 		}
 		matched++
 	}
 	if err := it.Err(); err != nil {
-		return matched, err
+		return matched, false, err
 	}
-	return matched, nil
+	return matched, false, nil
 }
 
 func validateTask(t core.ExtractTask) error {

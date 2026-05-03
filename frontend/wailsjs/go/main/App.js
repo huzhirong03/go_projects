@@ -34,6 +34,10 @@ export function PreviewFolder(arg1, arg2) {
   return window['go']['main']['App']['PreviewFolder'](arg1, arg2);
 }
 
+export function RespondFileBlocked(arg1, arg2) {
+  return window['go']['main']['App']['RespondFileBlocked'](arg1, arg2);
+}
+
 export function SaveConfig(arg1) {
   return window['go']['main']['App']['SaveConfig'](arg1);
 }

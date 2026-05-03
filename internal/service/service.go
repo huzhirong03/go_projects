@@ -16,11 +16,12 @@ type Emitter = core.EventEmitter
 
 // EmitterFactory 根据 taskID 构造一个事件发射器。
 // 测试时返回 Noop/Buffered；生产时返回 WailsEmitter。
-type EmitterFactory func(taskID string) Emitter
+type EmitterFactory func(taskID string, broker *filePromptBroker) Emitter
 
 // Service 是应用服务层单例。由 main.go 或 app.go 创建，注入到 Wails App。
 type Service struct {
 	factory EmitterFactory
+	broker  *filePromptBroker
 
 	mu       sync.Mutex
 	registry map[string]context.CancelFunc
@@ -34,6 +35,7 @@ func NewService(factory EmitterFactory) *Service {
 	}
 	return &Service{
 		factory:  factory,
+		broker:   newFilePromptBroker(),
 		registry: map[string]context.CancelFunc{},
 	}
 }
@@ -77,4 +79,13 @@ func (s *Service) ActiveTasks() []string {
 		out = append(out, id)
 	}
 	return out
+}
+
+func (s *Service) RespondFileBlocked(promptID, action string) bool {
+	switch core.FileBlockedChoice(action) {
+	case core.FileBlockedRetry, core.FileBlockedSkip, core.FileBlockedCancel:
+		return s.broker.respond(promptID, core.FileBlockedChoice(action))
+	default:
+		return false
+	}
 }

@@ -4,7 +4,7 @@
 import { reactive, readonly } from 'vue'
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime.js'
 import {
-    EVENT_PROGRESS, EVENT_LOG, EVENT_DONE, EVENT_ERROR
+    EVENT_PROGRESS, EVENT_LOG, EVENT_DONE, EVENT_ERROR, EVENT_FILE_BLOCKED
 } from '../types/events.js'
 
 const state = reactive({
@@ -17,6 +17,7 @@ const state = reactive({
     logs: [],        // { level, msg, ts }
     result: null,    // 完成后回填
     error: null,     // { code, message } 失败后回填
+    fileBlocked: null,
 })
 
 let subscribed = false
@@ -45,6 +46,12 @@ function onError(ev) {
     if (!state.taskId || ev.taskId !== state.taskId) return
     state.error = { code: ev.code, message: ev.message }
     state.running = false
+    state.fileBlocked = null
+}
+
+function onFileBlocked(ev) {
+    if (!state.taskId || ev.taskId !== state.taskId) return
+    state.fileBlocked = ev
 }
 
 /** 全局订阅一次即可；多次调用幂等。 */
@@ -54,6 +61,7 @@ export function installTaskListeners() {
     EventsOn(EVENT_LOG, onLog)
     EventsOn(EVENT_DONE, onDone)
     EventsOn(EVENT_ERROR, onError)
+    EventsOn(EVENT_FILE_BLOCKED, onFileBlocked)
     subscribed = true
 }
 
@@ -64,6 +72,7 @@ export function uninstallTaskListeners() {
     EventsOff(EVENT_LOG)
     EventsOff(EVENT_DONE)
     EventsOff(EVENT_ERROR)
+    EventsOff(EVENT_FILE_BLOCKED)
     subscribed = false
 }
 
@@ -78,6 +87,7 @@ export function startTask(taskId) {
     state.logs = []
     state.result = null
     state.error = null
+    state.fileBlocked = null
 }
 
 /** 重置状态（不取消后端，仅前端清空）。 */
@@ -91,6 +101,11 @@ export function resetTask() {
     state.logs = []
     state.result = null
     state.error = null
+    state.fileBlocked = null
+}
+
+export function clearFileBlocked() {
+    state.fileBlocked = null
 }
 
 export const task = readonly(state)

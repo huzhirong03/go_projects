@@ -100,7 +100,7 @@ func (s *Service) StartExtract(req ExtractRequest) (*TaskHandle, error) {
 		return nil, err
 	}
 	taskID := s.newTaskID()
-	emitter := s.factory(taskID)
+	emitter := s.factory(taskID, s.broker)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	s.register(taskID, cancel)

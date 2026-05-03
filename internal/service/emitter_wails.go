@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"sync/atomic"
 
 	"excel-master/internal/core"
 
@@ -14,14 +16,17 @@ import (
 // 事件名常量：core.EventProgress / EventLog / EventDone / EventError。
 // 前端 frontend/src/types/events.js 必须与之镜像。
 func NewWailsEmitterFactory(ctx context.Context) EmitterFactory {
-	return func(taskID string) Emitter {
-		return &wailsEmitter{ctx: ctx, taskID: taskID}
+	var seq uint64
+	return func(taskID string, broker *filePromptBroker) Emitter {
+		return &wailsEmitter{ctx: ctx, taskID: taskID, broker: broker, seq: &seq}
 	}
 }
 
 type wailsEmitter struct {
 	ctx    context.Context
 	taskID string
+	broker *filePromptBroker
+	seq    *uint64
 }
 
 type progressEvent struct {
@@ -49,6 +54,13 @@ type errorEvent struct {
 	Message string `json:"message"`
 }
 
+type fileBlockedEvent struct {
+	TaskID   string `json:"taskId"`
+	PromptID string `json:"promptId"`
+	Path     string `json:"path"`
+	Message  string `json:"message"`
+}
+
 func (w *wailsEmitter) Progress(p core.Progress) {
 	runtime.EventsEmit(w.ctx, core.EventProgress, progressEvent{
 		TaskID: w.taskID, Stage: p.Stage, Done: p.Done, Total: p.Total, Message: p.Message,
@@ -74,4 +86,24 @@ func (w *wailsEmitter) Error(err error) {
 		ev.Message = appErr.Message
 	}
 	runtime.EventsEmit(w.ctx, core.EventError, ev)
+}
+
+func (w *wailsEmitter) PromptFileBlocked(ctx context.Context, req core.FileBlockedRequest) core.FileBlockedChoice {
+	if w.broker == nil || w.seq == nil {
+		return core.FileBlockedCancel
+	}
+	if req.PromptID == "" {
+		req.PromptID = fmt.Sprintf("%s-file-%d", w.taskID, atomic.AddUint64(w.seq, 1))
+	}
+	ch := w.broker.register(req.PromptID)
+	defer w.broker.unregister(req.PromptID)
+	runtime.EventsEmit(w.ctx, core.EventFileBlocked, fileBlockedEvent{
+		TaskID: w.taskID, PromptID: req.PromptID, Path: req.Path, Message: req.Message,
+	})
+	select {
+	case choice := <-ch:
+		return choice
+	case <-ctx.Done():
+		return core.FileBlockedCancel
+	}
 }

@@ -1,6 +1,11 @@
 package extractor
 
-import "excel-master/internal/excelio"
+import (
+	"context"
+
+	"excel-master/internal/core"
+	"excel-master/internal/excelio"
+)
 
 // MatchedRow 是一次命中后向 OutputWriter 投递的单元。
 //
@@ -26,6 +31,10 @@ type OutputWriter interface {
 	Finalize() ([]string, error)
 	// Close 释放底层资源。多次调用需安全。
 	Close() error
+}
+
+type PromptFinalizer interface {
+	FinalizeWithPrompt(ctx context.Context, emitter core.EventEmitter) ([]string, error)
 }
 
 // Result 是一次 Extract 运行的结果汇总。

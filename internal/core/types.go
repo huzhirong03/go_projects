@@ -81,6 +81,24 @@ type Progress struct {
 	Message string
 }
 
+type FileBlockedRequest struct {
+	PromptID string
+	Path     string
+	Message  string
+}
+
+type FileBlockedChoice string
+
+const (
+	FileBlockedRetry  FileBlockedChoice = "retry"
+	FileBlockedSkip   FileBlockedChoice = "skip"
+	FileBlockedCancel FileBlockedChoice = "cancel"
+)
+
+type FileBlockedPrompter interface {
+	PromptFileBlocked(ctx context.Context, req FileBlockedRequest) FileBlockedChoice
+}
+
 // Runner 是所有耗时任务的统一抽象。
 // 实现必须响应 ctx 取消并向 emitter 汇报进度与日志。
 type Runner interface {

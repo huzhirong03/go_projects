@@ -48,6 +48,10 @@ func (a *App) StartSplit(req service.SplitRequest) (*service.TaskHandle, error) 
 // CancelTask 取消指定 TaskID 的任务。
 func (a *App) CancelTask(taskID string) bool { return a.svc.CancelTask(taskID) }
 
+func (a *App) RespondFileBlocked(promptID, action string) bool {
+	return a.svc.RespondFileBlocked(promptID, action)
+}
+
 // ChooseFolder 弹出原生文件夹选择器，返回用户选中的绝对路径（取消返回空串）。
 func (a *App) ChooseFolder(title string) (string, error) {
 	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{Title: title})

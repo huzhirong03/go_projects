@@ -24,3 +24,7 @@ export function openPath(path) {
 export function cancelTask(taskId) {
     return app().CancelTask(taskId)
 }
+
+export function respondFileBlocked(promptId, action) {
+    return app().RespondFileBlocked(promptId, action)
+}

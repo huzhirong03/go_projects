@@ -1,9 +1,11 @@
 package extractor
 
 import (
+	"context"
 	"path/filepath"
 	"strings"
 
+	"excel-master/internal/core"
 	"excel-master/internal/excelio"
 )
 
@@ -69,14 +71,49 @@ func (p *perSourceWriter) EmitRow(row MatchedRow, fs *FileSchema) error {
 
 // Finalize 对每个有命中的源文件执行"复制 + 删行"，返回生成的输出文件路径列表。
 func (p *perSourceWriter) Finalize() ([]string, error) {
+	return p.finalize(nil, nil)
+}
+
+func (p *perSourceWriter) FinalizeWithPrompt(ctx context.Context, emitter core.EventEmitter) ([]string, error) {
+	return p.finalize(ctx, emitter)
+}
+
+func (p *perSourceWriter) finalize(ctx context.Context, emitter core.EventEmitter) ([]string, error) {
 	paths := make([]string, 0, len(p.hits))
 	for _, h := range p.hits {
-		outPath, err := p.exportOne(h)
-		if err != nil {
-			return paths, err
+		for {
+			skipFile := false
+			switch askOfficeLockDecision(ctx, emitter, h.path) {
+			case fileOpenRetry:
+				continue
+			case fileOpenSkip:
+				emitter.Log(core.LogWarn, "已跳过正在打开的文件: "+h.path)
+				skipFile = true
+			case fileOpenCancel:
+				return paths, core.ErrCanceled
+			}
+			if skipFile {
+				break
+			}
+			outPath, err := p.exportOne(h)
+			if err == nil {
+				paths = append(paths, outPath)
+				p.imgCount += h.picCount
+				break
+			}
+			switch askFileOpenDecision(ctx, emitter, h.path, err) {
+			case fileOpenRetry:
+				continue
+			case fileOpenSkip:
+				emitter.Log(core.LogWarn, "已跳过无法读取的文件: "+h.path)
+				break
+			case fileOpenAbort:
+				return paths, err
+			default:
+				return paths, core.ErrCanceled
+			}
+			break
 		}
-		paths = append(paths, outPath)
-		p.imgCount += h.picCount
 	}
 	return paths, nil
 }
