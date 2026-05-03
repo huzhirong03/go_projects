@@ -1,14 +1,10 @@
 package splitter
 
 import (
-	"os"
 	"strings"
 	"time"
 
-	"excel-master/internal/core"
 	"excel-master/internal/excelio"
-
-	"github.com/xuri/excelize/v2"
 )
 
 // sanitizeFileName 替换 Windows 文件名非法字符。
@@ -27,48 +23,19 @@ func sanitizeFileName(name string) string {
 // timestamp 紧凑时间戳。
 func timestamp() string { return time.Now().Format("20060102_150405") }
 
-// cloneAndExtractSheet 实现原汁原味拆分的通用步骤：
-//  1. 二进制复制 srcPath -> outPath（CloneFile 已保证 outPath 不存在）
-//  2. excelize.OpenFile(outPath)
-//  3. 只保留 [sheet] 这个 Sheet，其它全删
-//  4. 若 keepRows 非 nil，则过滤行（保留 keepRows，其余 RemoveRow，图片跟着删）
-//  5. Save + Close
+// cloneAndExtractSheet 实现原汁原味拆分：直接走纯 zip+xml 手术，
+// 100% 保留源文件样式、条件格式、图片锚点、公式、合并单元格等。
 //
-// 任何步骤失败都会尝试清理半成品（删 outPath）。
+// 行为：
+//   - 只保留指定 sheet，其它 sheet 一并从 workbook.xml / [Content_Types].xml / rels 中清除
+//   - keepRows 为 nil：保留该 sheet 所有行；非 nil：只保留 keepRows 里的 1-based 源行号
+//     （调用方需自行包含表头），其余行被删，图片锚点跟随过滤+重映射
+//   - 跨被删行的合并单元格会被丢弃；同行公式自动做行号偏移
 //
-// keepRows 传 nil 表示"不过滤行，保留该 Sheet 所有行"（by_sheet 的场景）。
-// 传非 nil 切片则只保留里面的行号（by_rows / by_column 的场景；调用方需自行包含表头）。
+// 已替代：旧的 excelize.OpenFile + Save 路径（V1.3 CloneFileAndFilterRows），
+// 因为 excelize Save 会丢条件格式、图片锚点 editAs 属性等。
 func cloneAndExtractSheet(srcPath, outPath, sheet string, keepRows []int) error {
-	if err := excelio.CloneFile(srcPath, outPath); err != nil {
-		return err
-	}
-	f, err := excelize.OpenFile(outPath)
-	if err != nil {
-		_ = os.Remove(outPath)
-		return core.Wrap("EXCEL_OPEN_FAILED", "打开拷贝文件失败: "+outPath, err)
-	}
-	cleanup := func() {
-		_ = f.Close()
-		_ = os.Remove(outPath)
-	}
-	if err := excelio.KeepSheetsOnly(f, []string{sheet}); err != nil {
-		cleanup()
-		return err
-	}
-	if keepRows != nil {
-		if err := excelio.FilterRowsInSheet(f, sheet, keepRows); err != nil {
-			cleanup()
-			return err
-		}
-	}
-	if err := f.Save(); err != nil {
-		cleanup()
-		return core.Wrap("EXCEL_SAVE_FAILED", "保存输出文件失败: "+outPath, err)
-	}
-	if err := f.Close(); err != nil {
-		return core.Wrap("EXCEL_CLOSE_FAILED", "关闭输出文件失败: "+outPath, err)
-	}
-	return nil
+	return excelio.CloneAndExtractZip(srcPath, outPath, sheet, keepRows)
 }
 
 // selectSheets 按 allowed 过滤 allSheets，返回保持原顺序的子集。

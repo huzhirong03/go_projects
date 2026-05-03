@@ -168,15 +168,24 @@ func TestExtract_Merged(t *testing.T) {
 	if result.RowsMatched != 2 {
 		t.Errorf("RowsMatched = %d, want 2", result.RowsMatched)
 	}
-	// 验证合并文件含"命中关键词"列
+	// V1.4 起 merged 改为 zip 手术（原汁原味）：表头来自 primary 源，不再追加"命中关键词/来源文件"列。
 	r, err := excelio.Open(result.OutputFiles[0])
 	if err != nil {
 		t.Fatalf("open output: %v", err)
 	}
 	defer r.Close()
-	header, _ := r.Header(r.SheetNames()[0], 1)
-	if len(header) < 2 || header[len(header)-2] != "命中关键词" || header[len(header)-1] != "来源文件" {
-		t.Errorf("merged header 缺少 命中关键词/来源文件 列: %v", header)
+	sheets := r.SheetNames()
+	if len(sheets) != 1 {
+		t.Fatalf("merged 输出应只有 1 个 sheet（继承自 primary），实际 %d: %v", len(sheets), sheets)
+	}
+	header, _ := r.Header(sheets[0], 1)
+	if len(header) == 0 {
+		t.Errorf("merged 表头为空")
+	}
+	for _, h := range header {
+		if h == "命中关键词" || h == "来源文件" {
+			t.Errorf("V1.4 merged 不应再追加 %q 列：%v", h, header)
+		}
 	}
 }
 

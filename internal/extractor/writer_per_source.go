@@ -1,25 +1,22 @@
 package extractor
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 
-	"excel-master/internal/core"
 	"excel-master/internal/excelio"
-
-	"github.com/xuri/excelize/v2"
 )
 
-// perSourceWriter：每个源文件一个输出文件（原汁原味路径）。
+// perSourceWriter：每个源文件一个输出文件（原汁原味路径，纯 zip+xml 手术）。
 //
-// 不同于 per_keyword / merged 的"流式重写"，这里使用"复制源文件 + 删除非命中行"，
-// 这样源文件的所有样式（单元格填充/字体/边框/合并单元格/条件格式/数据验证/
-// 批注/图片锚点/冻结窗格/筛选器……）全部 1:1 保留。
+// 不同于 per_keyword / merged 的"流式重写"，这里使用"zip 手术：
+// 二进制复制 + 选择性 XML 重写"，源文件的所有样式（单元格填充/字体/边框/
+// 合并单元格/条件格式/数据验证/批注/图片锚点/冻结窗格/筛选器……）全部 1:1 保留。
 //
-// 代价：
-//   - 对大文件走 excelize.OpenFile（全量加载），内存占用高；
-//   - RemoveRow 是 O(n) 单行调用，大量删除场景耗时显著；
+// 实现：调用 excelio.CloneAndExtractZipMulti，传入命中过的多个 sheet 各自的 keepRows
+// （表头行 + 命中行）。完全绕过 excelize.OpenFile/Save，避免 issue #2061 类样式丢失。
+//
+// 代价 / 限制：
 //   - 为了不破坏原样，不追加"命中关键词"列；如果用户需要这信息，
 //     换用 per_keyword / merged 策略即可。
 //
@@ -89,11 +86,8 @@ func (p *perSourceWriter) Close() error { return nil }
 
 func (p *perSourceWriter) ImagesMigrated() int { return p.imgCount }
 
-// exportOne 生成单个源文件的输出：
-//  1. 二进制复制 src -> dst
-//  2. 只保留用户选中的 Sheet 中 **有命中** 的那些（没命中的 Sheet 一律删掉）
-//  3. 对每个保留的 Sheet，只保留 表头行 + 命中行
-//  4. Save
+// exportOne 生成单个源文件的输出：调 zip 手术一次性完成
+// “只保留命中 sheet，每个 sheet 仅保留表头行 + 命中行”。
 func (p *perSourceWriter) exportOne(h *perSourceHits) (string, error) {
 	// 目标路径
 	base := filepath.Base(h.path)
@@ -101,55 +95,20 @@ func (p *perSourceWriter) exportOne(h *perSourceHits) (string, error) {
 	fname := sanitizeFileName(stem) + "_已提取_" + p.ts + ".xlsx"
 	outPath := filepath.Join(p.outDir, fname)
 
-	// 1) 文件级复制
-	if err := excelio.CloneFile(h.path, outPath); err != nil {
-		return "", err
-	}
-
-	// 2) 打开拷贝
-	f, err := excelize.OpenFile(outPath)
-	if err != nil {
-		_ = os.Remove(outPath)
-		return "", core.Wrap("EXCEL_OPEN_FAILED", "打开拷贝后的文件失败: "+outPath, err)
-	}
-	// 任何后续错误都要尝试清理半成品
-	cleanup := func() {
-		_ = f.Close()
-		_ = os.Remove(outPath)
-	}
-
-	// 3) 收集要保留的 Sheet 名：命中过的 sheet
-	keepSheets := make([]string, 0, len(h.sheetRows))
-	for s := range h.sheetRows {
-		keepSheets = append(keepSheets, s)
-	}
-
-	// 4) 只保留命中过的 Sheet（如果还有别的 Sheet 会被删掉）
-	if err := excelio.KeepSheetsOnly(f, keepSheets); err != nil {
-		cleanup()
-		return "", err
-	}
-
-	// 5) 对每个保留的 Sheet 过滤行
+	// 构造 keepSheetRows: 每个命中 sheet 保留 表头行 + 命中行，去重后传入
+	keepSheetRows := make(map[string][]int, len(h.sheetRows))
 	for sheet, rows := range h.sheetRows {
 		keep := make([]int, 0, len(rows)+1)
 		if p.headerRow > 0 {
 			keep = append(keep, p.headerRow)
 		}
 		keep = append(keep, rows...)
-		if err := excelio.FilterRowsInSheet(f, sheet, excelio.SortedUnique(keep)); err != nil {
-			cleanup()
-			return "", err
-		}
+		keepSheetRows[sheet] = excelio.SortedUnique(keep)
 	}
 
-	// 6) 保存
-	if err := f.Save(); err != nil {
-		cleanup()
-		return "", core.Wrap("EXCEL_SAVE_FAILED", "保存输出文件失败: "+outPath, err)
-	}
-	if err := f.Close(); err != nil {
-		return "", core.Wrap("EXCEL_CLOSE_FAILED", "关闭输出文件失败: "+outPath, err)
+	// 一次性 zip 手术：复制 + 按 sheet/行 模板过滤 + 错误时自动清半成品
+	if err := excelio.CloneAndExtractZipMulti(h.path, outPath, keepSheetRows); err != nil {
+		return "", err
 	}
 	return outPath, nil
 }
