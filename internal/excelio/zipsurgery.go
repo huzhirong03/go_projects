@@ -167,12 +167,24 @@ func CloneAndExtractZipMulti(srcPath, dstPath string, keepSheetRows map[string][
 			if err := writeZipEntry(dst, name, newData); err != nil {
 				return err
 			}
+		case "xl/calcChain.xml":
+			// calcChain.xml 记录公式计算顺序，引用具体 cell（如 r="K1500"）。
+			// 过滤行之后这些引用会指向被删的 cell → Excel 打开报"部分内容有问题"
+			// 并强制删除整个 calcChain（在修复对话框里写成"已删除...公式(计算属性)"）。
+			// 最专业做法：不复制 calcChain.xml 到输出。Excel 首次打开时会根据公式
+			// 自动重建 calcChain，用户完全无感知。
+			continue
 		default:
 			if rowMap, ok := sheetPathRowMap[name]; ok {
 				data, err := readZipEntry(entry)
 				if err != nil {
 					return err
 				}
+				// 先展开共享公式（t="shared" + si="N" 机制）：
+				// 如果不展开，主公式所在行被过滤后，其他 follower cell 的
+				// <f t="shared" si="0"/> 找不到 si 定义 → Excel 报"部分内容有问题"
+				// 并删除整列公式（在修复对话框里写成"已删除...共享公式"）。
+				data = unshareFormulasInSheet(data)
 				newData, err := rewriteSheetXML(data, rowMap)
 				if err != nil {
 					return err
