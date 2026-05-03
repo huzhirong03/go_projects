@@ -4,6 +4,7 @@ import PathPicker from '../components/PathPicker.vue'
 import ProgressPanel from '../components/ProgressPanel.vue'
 import SheetSelector from '../components/SheetSelector.vue'
 import Collapsible from '../components/Collapsible.vue'
+import AdvancedFilter from '../components/AdvancedFilter.vue'
 import { previewFolder, startExtract } from '../api/extract.js'
 import { task, startTask } from '../stores/task.js'
 import { showToast } from '../stores/toast.js'
@@ -13,6 +14,7 @@ import { LogStartup } from '../../wailsjs/go/main/App'
 import {
     OUTPUT_PER_KEYWORD, OUTPUT_MERGED, OUTPUT_PER_SOURCE,
 } from '../types/events.js'
+import { FILTER_MODE_ALL, countActiveConditions, isMeaningfulCondition } from '../types/filter.js'
 
 function logT(msg) {
     LogPrint(`[STARTUP-FE] ${msg}`)
@@ -42,6 +44,11 @@ const defaults = {
     // 仅单文件 + xlsx 源生效；其它场景后端自动回退 new_files
     outputTarget: 'new_files',
     backupSource: false,
+    // 高级筛选 V1.5+：在关键词命中后做二次条件过滤。
+    //   advancedFilter: 当前编辑中的条件
+    //   advancedFilterPresets: 用户保存的命名预设 [{name, mode, conditions}]
+    advancedFilter: { mode: FILTER_MODE_ALL, conditions: [] },
+    advancedFilterPresets: [],
     // 折叠状态（默认全展开）
     foldPaths: false,
     foldKeywords: false,
@@ -84,6 +91,25 @@ watch(inplaceAvailable, (v) => {
     if (!v && form.outputTarget === 'inplace_sheets') form.outputTarget = 'new_files'
 })
 
+// --- 高级筛选 ---
+// 当前激活的条件数。
+const activeFilterCount = computed(() => countActiveConditions(form.advancedFilter))
+const hasActiveFilter = computed(() => activeFilterCount.value > 0)
+// 没关键词但有筛选 → per_keyword 没意义，自动降级 merged（UI 上 per_keyword 单选会灰掉）。
+const filterOnlyMode = computed(() => !form.keywordsRaw.trim() && hasActiveFilter.value)
+watch(filterOnlyMode, (v) => {
+    if (v && form.strategy === OUTPUT_PER_KEYWORD) form.strategy = OUTPUT_MERGED
+})
+// 折叠状态本身**不**持久化；进入页面时按"智能默认"决定：
+//   - 当前已有激活条件 → 折叠 + 角标提醒
+//   - 无激活条件 → 展开（让用户发现这个功能）
+// 用 ref 而不是 form 字段，避免被 PERSIST_KEYS 自动保存。
+const advFilterOpen = ref(false)
+// 命名预设临时输入：用户点"另存为"会弹一个内联文本框
+const presetSaving = ref(false)
+const presetNewName = ref('')
+const presetSelected = ref('') // 当前下拉选中的预设名
+
 // 任务完成（成功或失败）时，自动平滑滚到底部，让用户看到结果总结/错误。
 // 用 watch 而不是在 submit 里立刻滚——结果还没出来滚也是空的。
 watch(() => [task.result, task.error], ([r, e]) => {
@@ -124,6 +150,8 @@ onMounted(async () => {
     } catch (e) {
         console.warn('恢复 extract 配置失败:', e)
     }
+    // 智能默认：恢复完配置后判定。无激活条件 → 展开；有 → 收起 + 靠角标提示。
+    advFilterOpen.value = activeFilterCount.value === 0
     logT(`ExtractView mount complete at +${(performance.now() - _t0).toFixed(0)}ms`)
     // 在恢复完成后再装载 watch，避免恢复瞬间触发"假"保存
     watchHandle = watch(
@@ -171,6 +199,71 @@ function toggleColumn(col) {
     else form.searchColumns.push(col)
 }
 
+// --- 高级筛选预设管理 ---
+function applyPreset(name) {
+    const p = (form.advancedFilterPresets || []).find(x => x.name === name)
+    if (!p) return
+    // 深拷贝避免共享引用
+    form.advancedFilter = {
+        mode: p.mode || FILTER_MODE_ALL,
+        conditions: (p.conditions || []).map(c => ({ ...c })),
+    }
+    presetSelected.value = name
+    showToast(`已应用预设：${name}`, 'info')
+}
+function startSavePreset() {
+    if (!hasActiveFilter.value) {
+        showToast('当前没有任何条件，无需保存', 'warn')
+        return
+    }
+    presetSaving.value = true
+    presetNewName.value = presetSelected.value || ''
+}
+function cancelSavePreset() {
+    presetSaving.value = false
+    presetNewName.value = ''
+}
+function commitSavePreset() {
+    const name = (presetNewName.value || '').trim()
+    if (!name) {
+        showToast('预设名不能为空', 'warn')
+        return
+    }
+    const list = [...(form.advancedFilterPresets || [])]
+    const idx = list.findIndex(p => p.name === name)
+    const snap = {
+        name,
+        mode: form.advancedFilter.mode,
+        // 只保存有意义的条件，过滤占位空行
+        conditions: (form.advancedFilter.conditions || [])
+            .filter(isMeaningfulCondition)
+            .map(c => ({ ...c })),
+    }
+    if (idx >= 0) list[idx] = snap; else list.push(snap)
+    form.advancedFilterPresets = list
+    presetSelected.value = name
+    presetSaving.value = false
+    presetNewName.value = ''
+    showToast(idx >= 0 ? `已更新预设：${name}` : `已保存预设：${name}`, 'info')
+}
+function deletePreset() {
+    const name = presetSelected.value
+    if (!name) return
+    if (!confirm(`确认删除预设 "${name}"？`)) return
+    form.advancedFilterPresets = (form.advancedFilterPresets || []).filter(p => p.name !== name)
+    presetSelected.value = ''
+    showToast(`已删除预设：${name}`, 'info')
+}
+
+// 把当前条件转成提交给后端的 DTO；空（占位行 / 无条件）一律返回 null。
+function buildAdvancedFilterDTO() {
+    const sp = form.advancedFilter
+    if (!sp) return null
+    const conds = (sp.conditions || []).filter(isMeaningfulCondition).map(c => ({ ...c }))
+    if (conds.length === 0) return null
+    return { mode: sp.mode || FILTER_MODE_ALL, conditions: conds }
+}
+
 // scrollToBottom 把页面平滑滚到底部。仅在任务完成（task.result 或 task.error 出现）后调用，
 // 让用户视线自然落到"完成总结"卡片或错误提示上。
 function scrollToBottom() {
@@ -184,8 +277,11 @@ async function submit() {
         return showToast(form.sourceMode === 'file' ? '请先选择源文件' : '请先选择源文件夹', 'warn')
     }
     if (!isInplace.value && !form.outputDir) return showToast('请先选择输出目录', 'warn')
-    if (!form.keywordsRaw.trim()) return showToast('请输入至少一个关键词', 'warn')
-    if (!form.exact && !form.contains && !form.pinyin) {
+    // 关键词或高级筛选必须至少有一个；两个都为空 = 无规则。
+    if (!form.keywordsRaw.trim() && !hasActiveFilter.value) {
+        return showToast('请至少填写一个关键词或一条高级筛选条件', 'warn')
+    }
+    if (form.keywordsRaw.trim() && !form.exact && !form.contains && !form.pinyin) {
         return showToast('请至少选择一种匹配模式', 'warn')
     }
     if (previewState.sheets.length > 1 && form.sheetNames.length === 0) {
@@ -214,6 +310,7 @@ async function submit() {
             csvDelimiter: form.csvDelimiter,
             outputTarget: isInplace.value ? 'inplace_sheets' : 'new_files',
             backupSource: isInplace.value && form.backupSource,
+            advancedFilter: buildAdvancedFilterDTO(),
         })
         startTask(handle.taskId)
         // 注意：不在这里立刻滚动，结果还没生成滚下去也是空的。
@@ -277,6 +374,33 @@ async function submit() {
             </div>
         </Collapsible>
 
+        <Collapsible title="高级筛选" :open="advFilterOpen" @update:open="v => advFilterOpen = v">
+            <template #head-extra>
+                <span v-if="hasActiveFilter" class="adv-badge"
+                      :title="`${activeFilterCount} 个条件激活中`">
+                    ⚠ {{ activeFilterCount }} 个条件激活
+                </span>
+            </template>
+            <div class="adv-presets">
+                <span class="field-label" style="margin-right:8px">预设：</span>
+                <select v-model="presetSelected" class="name-select"
+                        @change="presetSelected && applyPreset(presetSelected)">
+                    <option value="">— 选择预设 —</option>
+                    <option v-for="p in form.advancedFilterPresets" :key="p.name" :value="p.name">{{ p.name }}</option>
+                </select>
+                <button v-if="!presetSaving" type="button" class="btn-mini" @click="startSavePreset">💾 另存为</button>
+                <button v-if="presetSelected" type="button" class="btn-mini btn-danger" @click="deletePreset">🗑 删除</button>
+                <template v-if="presetSaving">
+                    <input type="text" v-model="presetNewName" placeholder="预设名"
+                           class="name-input" style="width:160px"
+                           @keyup.enter="commitSavePreset" @keyup.esc="cancelSavePreset" />
+                    <button type="button" class="btn-mini btn-primary" @click="commitSavePreset">保存</button>
+                    <button type="button" class="btn-mini" @click="cancelSavePreset">取消</button>
+                </template>
+            </div>
+            <AdvancedFilter v-model="form.advancedFilter" :columns="previewState.columns" />
+        </Collapsible>
+
         <Collapsible title="数据范围" :open="!form.foldRange" @update:open="v => form.foldRange = !v">
             <div class="field">
                 <div class="label-row">
@@ -315,8 +439,12 @@ async function submit() {
             <div class="strip-row">
                 <span class="strip-title">策略</span>
                 <div class="inline-group radio-group">
-                    <label><input type="radio" :value="OUTPUT_PER_KEYWORD" v-model="form.strategy" />
-                        每个关键词一个文件</label>
+                    <label :class="{ disabled: filterOnlyMode }"
+                           :title="filterOnlyMode ? '没填关键词时无法按关键词分组' : ''">
+                        <input type="radio" :value="OUTPUT_PER_KEYWORD" v-model="form.strategy"
+                               :disabled="filterOnlyMode" />
+                        每个关键词一个文件
+                    </label>
                     <label><input type="radio" :value="OUTPUT_MERGED" v-model="form.strategy" />
                         合成一个文件</label>
                     <label v-if="!isInplace"><input type="radio" :value="OUTPUT_PER_SOURCE" v-model="form.strategy" />
@@ -504,6 +632,61 @@ async function submit() {
 }
 /* 策略 radio 间距特意加大：让"合成一个文件"在视觉上更接近下行的"保留图片"列。 */
 .radio-group { gap: 32px; }
+.radio-group label.disabled,
+.radio-group label.disabled input { cursor: not-allowed; opacity: 0.5; }
+
+/* 高级筛选角标 */
+.adv-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 8px;
+    margin-left: 6px;
+    background: #fff4e0;
+    color: #c97a08;
+    border: 1px solid #f0c989;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    user-select: none;
+}
+
+/* 预设管理条 */
+.adv-presets {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 4px 0 10px;
+    border-bottom: 1px dashed var(--border, #e0e0e0);
+    margin-bottom: 8px;
+}
+.btn-mini {
+    padding: 3px 10px;
+    font-size: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    color: var(--text-secondary);
+    border-radius: 4px;
+    cursor: pointer;
+}
+.btn-mini:hover { background: var(--surface-hover); color: var(--text); }
+.btn-mini.btn-primary {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+}
+.btn-mini.btn-danger {
+    color: var(--danger, #c43f3f);
+    border-color: var(--danger, #c43f3f);
+}
+.name-input {
+    height: 26px;
+    padding: 0 8px;
+    font-size: 13px;
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+}
 
 .column-selector {
     margin-top: 8px;
