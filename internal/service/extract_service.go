@@ -28,8 +28,8 @@ func (s *Service) PreviewFolder(folder string, headerRow int) (*HeaderPreview, e
 	}
 	// 单文件分支：直接读 1 个文件的预览，组装成 HeaderPreview 返回。
 	if !stat.IsDir() {
-		if !strings.EqualFold(filepath.Ext(folder), ".xlsx") {
-			return nil, core.New("INVALID_FILE", "仅支持 .xlsx 文件: "+folder)
+		if !core.IsSupported(folder) {
+			return nil, core.New(core.CodeSourceFormatUnsupported, "仅支持 .xlsx / .xlsm / .csv 文件: "+folder)
 		}
 		fp, err := s.PreviewFile(folder, headerRow)
 		if err != nil {
@@ -56,10 +56,28 @@ func (s *Service) PreviewFolder(folder string, headerRow int) (*HeaderPreview, e
 		if strings.HasPrefix(name, "~$") {
 			continue
 		}
-		if !strings.EqualFold(filepath.Ext(name), ".xlsx") {
+		if !core.IsSupported(name) {
 			continue
 		}
 		full := filepath.Join(folder, name)
+		// CSV 没有 Sheet 概念：用虚拟 Sheet "CSV"，表头取首行。
+		if core.DetectSourceKind(full) == core.SourceCSV {
+			if preview.FirstFile == "" {
+				units, err := extractor.ScanFile(full, headerRow, nil)
+				if err != nil {
+					return nil, err
+				}
+				preview.FirstFile = name
+				if len(units) > 0 {
+					preview.Columns = units[0].Headers
+				}
+			}
+			if _, ok := allSheets["CSV"]; !ok {
+				allSheets["CSV"] = struct{}{}
+				preview.Sheets = append(preview.Sheets, "CSV")
+			}
+			continue
+		}
 		r, err := excelio.Open(full)
 		if err != nil {
 			return nil, err
@@ -81,7 +99,7 @@ func (s *Service) PreviewFolder(folder string, headerRow int) (*HeaderPreview, e
 		_ = r.Close()
 	}
 	if preview.FirstFile == "" {
-		return nil, core.New("NO_FILES", "文件夹内没有 .xlsx 文件")
+		return nil, core.New("NO_FILES", "文件夹内没有 .xlsx / .csv 文件")
 	}
 	return preview, nil
 }
@@ -92,8 +110,20 @@ func (s *Service) PreviewFile(path string, headerRow int) (*FilePreview, error) 
 	if path == "" {
 		return nil, core.New("INVALID_FILE", "文件路径为空")
 	}
-	if !strings.EqualFold(filepath.Ext(path), ".xlsx") {
-		return nil, core.New("INVALID_FILE", "仅支持 .xlsx 文件: "+path)
+	if !core.IsSupported(path) {
+		return nil, core.New(core.CodeSourceFormatUnsupported, "仅支持 .xlsx / .xlsm / .csv 文件: "+path)
+	}
+	// CSV 没有真正的 "Sheet" 概念；用虚拟 sheet "CSV"，表头来自首行。
+	if core.DetectSourceKind(path) == core.SourceCSV {
+		units, err := extractor.ScanFile(path, headerRow, nil)
+		if err != nil {
+			return nil, err
+		}
+		out := &FilePreview{Path: path, Sheets: []string{"CSV"}}
+		if len(units) > 0 {
+			out.Columns = units[0].Headers
+		}
+		return out, nil
 	}
 	r, err := excelio.Open(path)
 	if err != nil {
@@ -177,6 +207,8 @@ func buildExtractTask(req ExtractRequest) (core.ExtractTask, error) {
 		PreserveImages: req.PreserveImages,
 		SheetNames:     req.SheetNames,
 		FilenamePrefix: req.FilenamePrefix,
+		CSVEncoding:    req.CSVEncoding,
+		CSVDelimiter:   req.CSVDelimiter,
 	}, nil
 }
 

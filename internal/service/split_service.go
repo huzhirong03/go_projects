@@ -93,6 +93,8 @@ func buildSplitTask(req SplitRequest) (core.SplitTask, error) {
 		task.SearchAllCols = req.SearchAllCols || len(req.SearchColumns) == 0
 		task.SearchColumns = req.SearchColumns
 		task.Output = strategy
+		task.CSVEncoding = req.CSVEncoding
+		task.CSVDelimiter = req.CSVDelimiter
 	}
 
 	return task, nil

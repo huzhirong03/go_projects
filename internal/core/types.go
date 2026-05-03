@@ -50,6 +50,10 @@ type ExtractTask struct {
 	PreserveImages bool           // 是否保留图片
 	SheetNames     []string       // 指定的 Sheet 名（空 = 全部）
 	FilenamePrefix string         // 输出文件名前缀，空字符串 = 默认；常用 "搜索_"
+
+	// CSV 源专用（仅源含有 .csv 时生效，xlsx 源忽略）
+	CSVEncoding  string // "" = 自动嗅探；允许 "utf-8" / "gbk" / "gb18030" / "big5" / "utf-16" 等
+	CSVDelimiter string // "" = 自动推断；允许 "," / ";" / "\t" / "|"
 }
 
 // SplitTask 单文件拆分任务。
@@ -72,6 +76,10 @@ type SplitTask struct {
 	SearchAllCols bool
 	SearchColumns []string
 	Output        OutputStrategy
+
+	// CSV 源专用（仅 SplitByKeyword + .csv 生效）
+	CSVEncoding  string
+	CSVDelimiter string
 }
 
 // Progress 任务进度快照。Done == Total 表示完成。

@@ -52,6 +52,8 @@ func SplitByKeyword(ctx context.Context, task core.SplitTask, emitter core.Event
 		HeaderRow:      task.HeaderRow,
 		PreserveImages: task.PreserveImages,
 		SheetNames:     task.SheetNames,
+		CSVEncoding:    task.CSVEncoding,
+		CSVDelimiter:   task.CSVDelimiter,
 	}
 	er, err := extractor.ExtractUnits(ctx, et, units, emitter)
 	if err != nil {

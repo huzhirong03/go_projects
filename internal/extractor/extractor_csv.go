@@ -117,9 +117,10 @@ func openCSVWithPrompt(
 	}
 }
 
-// csvOptionsFromTask 从 ExtractTask 抽出 CSV 相关参数。
-// V1.5 commit 3 阶段 task 里还没 CSVEncoding / CSVDelimiter 字段，先返回空值（自动嗅探）。
-// commit 6 把这两个字段补到 core.ExtractTask 后，本函数会读取它们。
-func csvOptionsFromTask(_ core.ExtractTask) excelio.CSVOptions {
-	return excelio.CSVOptions{}
+// csvOptionsFromTask 从 ExtractTask 抽出 CSV 相关参数。空值 = 自动嗅探/推断。
+func csvOptionsFromTask(task core.ExtractTask) excelio.CSVOptions {
+	return excelio.CSVOptions{
+		Encoding:  task.CSVEncoding,
+		Delimiter: task.CSVDelimiter,
+	}
 }

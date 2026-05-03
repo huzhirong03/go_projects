@@ -24,6 +24,10 @@ type ExtractRequest struct {
 	PreserveImages bool     `json:"preserveImages"`
 	SheetNames     []string `json:"sheetNames"`     // V1.1 空 = 所有 Sheet 都参与
 	FilenamePrefix string   `json:"filenamePrefix"` // 输出文件名前缀；空串 = 默认；例 "搜索_"
+
+	// CSV 源可选参数；空字符串 = 自动推断。xlsx 源忽略。
+	CSVEncoding  string `json:"csvEncoding"`
+	CSVDelimiter string `json:"csvDelimiter"`
 }
 
 // SplitRequest 是前端请求单文件拆分时提交的 DTO。
@@ -46,6 +50,10 @@ type SplitRequest struct {
 	SearchAllCols bool     `json:"searchAllCols"`
 	SearchColumns []string `json:"searchColumns"`
 	Strategy      string   `json:"strategy"`
+
+	// CSV 源可选参数（仅 by_keyword + .csv 生效）
+	CSVEncoding  string `json:"csvEncoding"`
+	CSVDelimiter string `json:"csvDelimiter"`
 }
 
 // TaskHandle 是启动任务后返回给前端的句柄。
