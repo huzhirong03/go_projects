@@ -420,37 +420,44 @@ func planInplaceSpecs(layout *fullXlsxLayout, specs []InplaceSheetSpec) ([]plann
 }
 
 func writePlannedSheet(zr *zip.Reader, dst *zip.Writer, p plannedSheet) error {
-	// 新 sheet xml = 源 sheet xml 经 rewriteSheetXML 过滤
+	// 新 sheet xml = 源 sheet xml 经 unshare + rewriteSheetXML 过滤
+	// 源 sheet xml 里的 <drawing r:id> / <legacyDrawing r:id> / <hyperlink r:id> / <oleObjects>
+	// 等节点不动，因为新 sheet rels 会复制源 sheet rels 的全部条目（rId 保一致）。
 	srcSheetData, err := readEntryByName(zr, p.srcSheet)
 	if err != nil {
 		return err
 	}
-	newSheetData, err := rewriteSheetXML(srcSheetData, p.rowMap)
+	// 先把 shared formula 展开成 normal formula，避免主公式行被过滤掉后
+	// follower cell 的 <f t="shared" si="N"/> 找不到 si 定义导致 Excel 报错并删公式。
+	unshared := unshareFormulasInSheet(srcSheetData)
+	newSheetData, err := rewriteSheetXML(unshared, p.rowMap)
 	if err != nil {
 		return err
-	}
-	// 若新 sheet 关联 drawing，需要把源 sheet 的 <drawing r:id="..."/> 节点的 rId
-	// 改成"在新 sheet rels 里固定使用的 rId1"，避免源 rId 冲突。
-	if p.newDraw != "" {
-		newSheetData = rewriteSheetDrawingRID(newSheetData, "rId1")
 	}
 	if err := writeZipEntry(dst, p.newSheet, newSheetData); err != nil {
 		return err
 	}
 
-	if p.newDraw == "" {
-		return nil
+	// 新 sheet rels：复制源 sheet rels（保留所有 rId），只把 drawing 那条的 Target
+	// 改指新 drawing。这样 hyperlinks / comments / legacyDrawing / printerSettings 等
+	// 所有其他引用皆能从原 sheet 原样迁移，避免 Excel 报错。
+	srcSheetRelsPath := sheetRelsPath(p.srcSheet)
+	srcSheetRelsData, err := readEntryByNameOptional(zr, srcSheetRelsPath)
+	if err != nil {
+		return err
+	}
+	if srcSheetRelsData != nil {
+		newSheetRelsData := srcSheetRelsData
+		if p.newDraw != "" {
+			newSheetRelsData = retargetDrawingInRels(srcSheetRelsData, "../drawings/"+path.Base(p.newDraw))
+		}
+		if err := writeZipEntry(dst, p.newSheetRl, newSheetRelsData); err != nil {
+			return err
+		}
 	}
 
-	// 新 sheet rels：指向新 drawing
-	relsXML := fmt.Sprintf(
-		`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`+
-			`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">`+
-			`<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/%s"/>`+
-			`</Relationships>`,
-		path.Base(p.newDraw))
-	if err := writeZipEntry(dst, p.newSheetRl, []byte(relsXML)); err != nil {
-		return err
+	if p.newDraw == "" {
+		return nil
 	}
 
 	// 新 drawing xml = 源 drawing xml 经 rewriteDrawingXML 过滤
@@ -482,6 +489,22 @@ func writePlannedSheet(zr *zip.Reader, dst *zip.Writer, p plannedSheet) error {
 	}
 	return nil
 }
+
+// retargetDrawingInRels 在 sheet rels xml 里找 Type=".../drawing" 的 Relationship，
+// 把它的 Target 改为 newTarget，其他 Relationship 原样保留。
+func retargetDrawingInRels(data []byte, newTarget string) []byte {
+	return drawingRelTagRegexp.ReplaceAllFunc(data, func(tag []byte) []byte {
+		// tag 形如 <Relationship Id="rId3" Type=".../drawing" Target="../drawings/drawing1.xml"/>
+		return relTargetAttrRegexp.ReplaceAll(tag, []byte(`Target="`+newTarget+`"`))
+	})
+}
+
+// drawingRelTagRegexp 匹配 Type=".../drawing" 的单个 Relationship 节点。
+// 兼容自闭合 `<Relationship .../>` 和成对 `<Relationship ...></Relationship>` 两种写法。
+var drawingRelTagRegexp = regexp.MustCompile(`(?s)<Relationship\b[^>]*Type="[^"]*?/drawing"[^>]*?(?:/>|>.*?</Relationship>)`)
+
+// relTargetAttrRegexp 匹配 Relationship 节点里的 Target="..." 属性。
+var relTargetAttrRegexp = regexp.MustCompile(`Target="[^"]*"`)
 
 // drawingRelsPath: xl/drawings/drawing1.xml -> xl/drawings/_rels/drawing1.xml.rels
 func drawingRelsPath(drawingXMLPath string) string {
@@ -558,19 +581,6 @@ func xmlAttrEscape(s string) string {
 	_ = xml.EscapeText(&b, []byte(s))
 	return b.String()
 }
-
-// rewriteSheetDrawingRID 把 sheetN.xml 中 <drawing r:id="..."/> 的 rId 替换为 newRID。
-// xlsx 里 sheet 与 drawing 的关联是通过 sheet 自己的 rels 文件（xl/worksheets/_rels/sheetN.xml.rels）
-// 中的 Id 引用，sheet 文件本身的 <drawing r:id="rIdX"/> 必须与 rels 里的 Id 对得上。
-// 我们的新 sheet rels 固定写 rId1，所以这里把源 sheet xml 的 rId 替换成 rId1。
-// 若源 sheet xml 没有 <drawing>（无图）—— 不会被调到这条路径，故无副作用。
-func rewriteSheetDrawingRID(data []byte, newRID string) []byte {
-	return drawingTagRIDRegexp.ReplaceAll(data,
-		[]byte(`<drawing r:id="`+newRID+`"`))
-}
-
-// 匹配 <drawing r:id="rIdX"（自闭合或带子标签都覆盖前缀）。
-var drawingTagRIDRegexp = regexp.MustCompile(`<drawing\s+r:id="[^"]+"`)
 
 // 防止 io 未引用（仅 read/write 间接用到）
 var _ = io.Copy
