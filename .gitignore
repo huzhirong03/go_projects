@@ -7,6 +7,10 @@ frontend/dist
 
 # Wails build 产出（保留 build/ 其它目录：icon/manifest 等）
 /build/bin/
+/build/release/
+
+# 开发模式日志（vbs 启动器 tee 的）
+/dev.log
 
 # 运行时日志（startup.log 会落到 exe 同目录；logs/ 是 task 日志目录）
 *.log

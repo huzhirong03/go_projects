@@ -1,4 +1,4 @@
-# 把微软下载的 WebView2 Fixed Version cab 包解压到项目的 webview2_runtime/ 目录。
+﻿# 把微软下载的 WebView2 Fixed Version cab 包解压到项目的 webview2_runtime/ 目录。
 #
 # 用法：
 #   pwsh ./scripts/install-webview2-runtime.ps1 -CabPath "C:\Downloads\Microsoft.WebView2.FixedVersionRuntime.131.0.2903.99.x64.cab"

@@ -1,65 +1,86 @@
 # 打包发布指南
 
-> 把 Excel 拆合大师打包成绿色 zip，发给学员双击即用，不依赖系统装 WebView2。
+> 把 Excel 拆合大师打包成可分发产物，发给学员使用。
 
-## 前置准备（一次性）
+## 推荐流程：embed 模式（默认）
 
-### 1. 装 Wails CLI
+**学员体验**：双击单个 exe → 第一次启动静默装 WebView2 到系统 → 之后秒开（像微信首次安装的体验）。
+
+**前置准备**（一次性）：
 
 ```powershell
+# 装 Wails CLI（已装跳过）
 go install github.com/wailsapp/wails/v2/cmd/wails@latest
 ```
 
-### 2. 下载 WebView2 Fixed Version Runtime
-
-**官方下载入口**：
-
-> https://developer.microsoft.com/en-us/microsoft-edge/webview2/
-
-页面下拉到 **"Get the Fixed Version"**，选 **x64** 平台，下载最新 stable 版本（约 130MB cab 文件）。
-
-### 3. 解压到项目
-
-```powershell
-pwsh ./scripts/install-webview2-runtime.ps1 -CabPath "C:\Downloads\Microsoft.WebView2.FixedVersionRuntime.131.0.2903.99.x64.cab"
-```
-
-成功后项目根目录出现 `webview2_runtime/`（已 gitignore，不入库）。
-
----
-
-## 一键打包
-
-每次发版本就跑这一条命令：
+**每次发版本**：
 
 ```powershell
 pwsh ./scripts/build-release.ps1
 ```
 
-**产物**：`build/release/excel-master-v1.0.0.zip`（约 60-80MB，zip 压缩）
+**产物**：`build/release/excel-master-v1.0.0-embed.zip`，约 50MB。
 
-**zip 内部结构**：
+**zip 内部**：
 
 ```
-excel-master-v1.0.0.zip
+excel-master-v1.0.0-embed.zip
 └── (解压后)
-    ├── excel-master.exe          (~15-20 MB)
-    ├── webview2_runtime/         (~150 MB 解压后)
-    │   ├── msedgewebview2.exe
-    │   ├── *.dll, *.pak, ...
-    │   └── locales/, etc.
+    ├── excel-master.exe         （~140 MB，含 WebView2 installer）
     ├── LICENSE
     ├── README.md
     └── CHANGELOG.md
 ```
 
-学员**双击 exe** 即可运行，不需要装 WebView2、不需要联网、不写注册表。
+学员**双击 exe** 即可。首次启动会**短暂**联机装 WebView2 到 `%LOCALAPPDATA%\Microsoft\EdgeWebView`（约 5-10 秒），之后所有启动都是秒开。
 
 ---
 
-## 升级版本号流程
+## 备选流程：Fixed Version 模式（真绿色）
 
-发新版本前，**3 处必须同步改**（脚本会校验一致性）：
+**学员体验**：解压 zip → 双击 exe，**零写系统**，整个文件夹可移动到 U 盘 / 网盘 / 任意盘。
+
+适合：你需要"完全便携、不污染系统盘"的发布场景。
+
+**前置**：
+
+1. 装 Wails CLI（同上）
+2. 下载 WebView2 Fixed Version Runtime（约 130MB cab 文件）
+   - 入口：https://developer.microsoft.com/en-us/microsoft-edge/webview2/
+   - 选 "Get the Fixed Version" → x64
+3. 解压到项目：
+
+```powershell
+pwsh ./scripts/install-webview2-runtime.ps1 -CabPath "C:\Downloads\Microsoft.WebView2.FixedVersionRuntime.131.0.2903.99.x64.cab"
+```
+
+**打包**：
+
+```powershell
+pwsh ./scripts/build-release.ps1 -Mode fixed
+```
+
+**产物**：`build/release/excel-master-v1.0.0-fixed.zip`，约 70MB。
+
+**zip 内部**：
+
+```
+excel-master-v1.0.0-fixed.zip
+└── (解压后)
+    ├── excel-master.exe         （~20 MB）
+    ├── webview2_runtime/        （~150 MB 解压后）
+    │   ├── msedgewebview2.exe
+    │   └── *.dll, *.pak, ...
+    ├── LICENSE
+    ├── README.md
+    └── CHANGELOG.md
+```
+
+---
+
+## 升级版本号
+
+发新版本前 **3 处必须同步改**（脚本会校验一致性）：
 
 1. `internal/core/version.go` 里的 `Version` 常量
 2. `wails.json` 里的 `info.productVersion`
@@ -69,30 +90,19 @@ excel-master-v1.0.0.zip
 
 ---
 
-## 不打包 WebView2（小体积发布）
-
-如果学员电脑都已装 WebView2（Win11 / Win10 21H2+ 默认装），可以省 130MB：
-
-```powershell
-pwsh ./scripts/build-release.ps1 -SkipWebView2
-```
-
-**风险**：老 Win10（< 1809） / Win10 LTSC 没装 WebView2 的电脑会闪退。
-
----
-
 ## 验证清单
 
 打包完成后建议人工 sanity check：
 
 | 步 | 验证项 | 预期 |
 |---|---|---|
-| 1 | 解压 zip 到一个空文件夹 | 出现 exe + webview2_runtime/ + 文档 |
-| 2 | 把整个文件夹拷到 U 盘 / D 盘 / 网盘 | 都能跑 |
-| 3 | 双击 exe | 1-3 秒打开窗口，标题显示 "Excel 拆合大师 v1.0.0" |
-| 4 | 试一次提取 + 一次拆分 | 功能正常 |
-| 5 | 关软件 | exe 同目录出现 `config.json` + `logs/` 子目录 |
-| 6 | 删整个文件夹 | 系统 C 盘没有任何残留（除非用户跑过 fallback 模式） |
+| 1 | 把 zip 拷到一个**没装过 WebView2 的电脑**上解压 | 出现 exe + 文档 |
+| 2 | 双击 exe | embed 模式：首次 5-10 秒后窗口出现；fixed 模式：1-3 秒立刻出现 |
+| 3 | 窗口标题显示 "Excel 拆合大师 v1.0.0" | ✅ |
+| 4 | topbar 显示 "Excel 拆合大师 v1.0.0 · 大荣老师出品" | ✅ |
+| 5 | 试一次提取 + 一次拆分 | 功能正常 |
+| 6 | 关软件 | exe 同目录出现 `config.json` + `logs/` 子目录 |
+| 7 | 点击右上角 "📂 日志" 按钮 | 自动打开 logs 文件夹 |
 
 ---
 
@@ -100,19 +110,16 @@ pwsh ./scripts/build-release.ps1 -SkipWebView2
 
 ### exe 双击没反应 / 闪退
 
-**可能 1**：缺 WebView2 但没带 runtime → 加 `-SkipWebView2` 时确认学员装了 WebView2
+- **embed 模式**：可能 WebView2 安装失败 → 让学员手动装 [Microsoft 官方 WebView2 Runtime](https://go.microsoft.com/fwlink/p/?LinkId=2124703)
+- **fixed 模式**：检查 `webview2_runtime/msedgewebview2.exe` 是否在解压后的位置；版本与系统不兼容时换更老版本（v118 兼容性最好）
 
-**可能 2**：WebView2 Fixed Version 版本与系统不兼容 → 下载更老版本（v118 兼容性更好）
+### 杀毒软件拦截
 
-**可能 3**：杀毒软件拦截 → 学员加白名单或换免杀打包
+加白名单。这是 Wails / Go 编译产物的常见误报，无解（除非买代码签名证书）。
 
-### "找不到 msedgewebview2.exe"
+### "找不到 msedgewebview2.exe"（fixed 模式）
 
 打包脚本会自检。如果手动验证：`build/bin/webview2_runtime/msedgewebview2.exe` 必须存在。
-
-### exe 大但 webview2_runtime 没拷过来
-
-检查打包脚本是否报"找不到 webview2_runtime"错。或者跑 `pwsh ./scripts/install-webview2-runtime.ps1` 重新解压。
 
 ---
 
@@ -120,4 +127,4 @@ pwsh ./scripts/build-release.ps1 -SkipWebView2
 
 - **代码签名**：买 EV 代码签名证书，避免 SmartScreen "未知发布者" 警告
 - **自动更新**：集成 go-selfupdate 检查 GitHub Release 新版本
-- **更小的 WebView2**：去掉 locales 里学员用不到的非中文/英文语言包，可省 30MB
+- **更小的 Fixed Version**：去掉 locales 里学员用不到的非中文/英文语言包，可省 30MB
