@@ -18,14 +18,14 @@ export const toastState = reactive({
 /**
  * @param {string} msg 消息内容
  * @param {'info'|'success'|'warn'|'error'} level
- * @param {number} durationMs 自动消失的毫秒数；error 默认 6 秒，其他 3 秒
+ * @param {number} durationMs 自动消失的毫秒数；error 默认 8 秒，其他 5 秒
  */
 export function showToast(msg, level = 'info', durationMs) {
     if (!msg) return
     const id = nextId++
     const item = { id, level, msg: String(msg), ts: Date.now() }
     toastState.items.push(item)
-    const dur = durationMs ?? (level === 'error' ? 6000 : 3000)
+    const dur = durationMs ?? (level === 'error' ? 8000 : 5000)
     setTimeout(() => dismissToast(id), dur)
 }
 

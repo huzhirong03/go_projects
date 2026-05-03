@@ -12,6 +12,8 @@ export function ConfigPath():Promise<string>;
 
 export function LoadConfig():Promise<string>;
 
+export function LogStartup(arg1:string):Promise<void>;
+
 export function OpenPath(arg1:string):Promise<void>;
 
 export function PreviewFile(arg1:string,arg2:number):Promise<service.FilePreview>;

@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"log"
 	"os/exec"
+	"time"
 
 	"excel-master/internal/service"
 
@@ -21,8 +23,11 @@ func NewApp() *App { return &App{} }
 
 // startup 在 Wails 启动时注入 runtime context，用于 EventsEmit。
 func (a *App) startup(ctx context.Context) {
+	t0 := time.Now()
+	log.Printf("[STARTUP] app.startup invoked, +%v since main", time.Since(procStart))
 	a.ctx = ctx
 	a.svc = service.NewService(service.NewWailsEmitterFactory(ctx))
+	log.Printf("[STARTUP] app.startup done in %v, +%v since main", time.Since(t0), time.Since(procStart))
 }
 
 // PreviewFolder 前端在选完文件夹后调一次，拿第一个 xlsx 的表头 + 所有 Sheet 名。
@@ -80,3 +85,9 @@ func (a *App) SaveConfig(data string) error { return a.svc.SaveConfig(data) }
 
 // ConfigPath 返回配置文件的绝对路径，便于前端在 toast 里展示给用户。
 func (a *App) ConfigPath() (string, error) { return a.svc.ConfigPath() }
+
+// LogStartup 让前端把启动 timing 日志写到后端 log（同时进 stderr + startup.log）。
+// 前端 wails LogPrint 不会写到我们的文件，所以特意走 IPC 让 Go log 收集。
+func (a *App) LogStartup(msg string) {
+	log.Printf("[STARTUP-FE] %s (Go now=%v)", msg, time.Since(procStart))
+}

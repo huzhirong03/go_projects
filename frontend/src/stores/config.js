@@ -42,8 +42,28 @@ export function saveViewConfig(viewKey, snapshot) {
     _cache[viewKey] = JSON.parse(JSON.stringify(snapshot))
     if (_saveTimer) clearTimeout(_saveTimer)
     _saveTimer = setTimeout(() => {
+        _saveTimer = null
         apiSave(_cache).catch(e => console.warn('SaveConfig failed:', e))
     }, 500)
+}
+
+/**
+ * 立刻把挂起的保存 flush 到磁盘。用于窗口关闭前，防止 500ms 防抖未触发导致配置丢失。
+ * 返回 Promise（调用方可 await，但 pagehide/beforeunload 里通常没法等）。
+ */
+export function flushConfig() {
+    if (_saveTimer) {
+        clearTimeout(_saveTimer)
+        _saveTimer = null
+    }
+    if (_cache === null) return Promise.resolve()
+    return apiSave(_cache).catch(e => console.warn('SaveConfig flush failed:', e))
+}
+
+// 窗口关闭前 flush。pagehide 在 Wails/WebView2 上比 beforeunload 更可靠。
+if (typeof window !== 'undefined') {
+    window.addEventListener('pagehide', () => { flushConfig() })
+    window.addEventListener('beforeunload', () => { flushConfig() })
 }
 
 /** 清空所有视图配置（"恢复默认"按钮可用）。 */

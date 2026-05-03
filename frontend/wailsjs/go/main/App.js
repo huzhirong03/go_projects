@@ -22,6 +22,10 @@ export function LoadConfig() {
   return window['go']['main']['App']['LoadConfig']();
 }
 
+export function LogStartup(arg1) {
+  return window['go']['main']['App']['LogStartup'](arg1);
+}
+
 export function OpenPath(arg1) {
   return window['go']['main']['App']['OpenPath'](arg1);
 }

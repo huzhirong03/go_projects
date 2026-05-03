@@ -8,9 +8,16 @@ import { previewFolder, startExtract } from '../api/extract.js'
 import { task, startTask } from '../stores/task.js'
 import { showToast } from '../stores/toast.js'
 import { getViewConfig, saveViewConfig } from '../stores/config.js'
+import { LogPrint } from '../../wailsjs/runtime/runtime'
+import { LogStartup } from '../../wailsjs/go/main/App'
 import {
     OUTPUT_PER_KEYWORD, OUTPUT_MERGED, OUTPUT_PER_SOURCE,
 } from '../types/events.js'
+
+function logT(msg) {
+    LogPrint(`[STARTUP-FE] ${msg}`)
+    LogStartup(msg).catch(() => {})
+}
 
 // 默认值（首次启动 / "恢复默认"时使用）。
 const defaults = {
@@ -34,7 +41,13 @@ const defaults = {
 }
 
 const form = reactive({ ...defaults, sheetNames: [] })
-const progressEl = ref(null) // ProgressPanel 容器，用于"开始"后自动滚到视野
+const progressEl = ref(null) // ProgressPanel 容器（ref 保留备用）
+
+// 任务完成（成功或失败）时，自动平滑滚到底部，让用户看到结果总结/错误。
+// 用 watch 而不是在 submit 里立刻滚——结果还没出来滚也是空的。
+watch(() => [task.result, task.error], ([r, e]) => {
+    if (r || e) scrollToBottom()
+})
 
 // 哪些字段需要持久化到磁盘。sheetNames 不保存（每个文件 Sheet 不一样）。
 const PERSIST_KEYS = Object.keys(defaults)
@@ -50,14 +63,19 @@ const previewState = reactive({
 // 启动时恢复上次的配置，然后再启用自动保存。
 let watchHandle = null
 onMounted(async () => {
+    const _t0 = performance.now()
+    logT(`ExtractView onMounted at ${_t0.toFixed(0)}ms`)
     try {
+        const tCfg = performance.now()
         const saved = await getViewConfig('extract')
+        logT(`ExtractView getViewConfig('extract') took ${(performance.now() - tCfg).toFixed(0)}ms`)
         for (const k of PERSIST_KEYS) {
             if (saved[k] !== undefined) form[k] = saved[k]
         }
     } catch (e) {
         console.warn('恢复 extract 配置失败:', e)
     }
+    logT(`ExtractView mount complete at +${(performance.now() - _t0).toFixed(0)}ms`)
     // 在恢复完成后再装载 watch，避免恢复瞬间触发"假"保存
     watchHandle = watch(
         () => PERSIST_KEYS.map(k => form[k]),
@@ -104,6 +122,14 @@ function toggleColumn(col) {
     else form.searchColumns.push(col)
 }
 
+// scrollToBottom 把页面平滑滚到底部。仅在任务完成（task.result 或 task.error 出现）后调用，
+// 让用户视线自然落到"完成总结"卡片或错误提示上。
+function scrollToBottom() {
+    nextTick(() => {
+        window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })
+    })
+}
+
 async function submit() {
     if (!form.folderPath) return showToast('请先选择源文件夹', 'warn')
     if (!form.outputDir) return showToast('请先选择输出目录', 'warn')
@@ -135,9 +161,8 @@ async function submit() {
                 : form.sheetNames,
         })
         startTask(handle.taskId)
-        // 任务启动后让 ProgressPanel 进入视口（仅在不可见时才滚）
-        await nextTick()
-        progressEl.value?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+        // 注意：不在这里立刻滚动，结果还没生成滚下去也是空的。
+        // 任务完成后由 watch(task.result/error) 触发 scrollToBottom。
     } catch (e) {
         showToast('启动失败：' + (e.message || e), 'error')
     }

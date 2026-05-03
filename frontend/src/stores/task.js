@@ -6,6 +6,7 @@ import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime.js'
 import {
     EVENT_PROGRESS, EVENT_LOG, EVENT_DONE, EVENT_ERROR, EVENT_FILE_BLOCKED
 } from '../types/events.js'
+import { showToast } from './toast.js'
 
 const state = reactive({
     taskId: '',
@@ -43,6 +44,16 @@ function onDone(ev) {
     state.result = ev.result
     state.running = false
     state.endedAt = Date.now()
+    // 0 命中友好提示：任务本身成功但没匹配任何行，用户通常会困惑"为什么没文件"。
+    const r = ev.result || {}
+    const matched = r.RowsMatched
+    const outs = Array.isArray(r.OutputFiles) ? r.OutputFiles.length : null
+    if (matched === 0) {
+        showToast('未找到匹配的行，未生成任何输出文件。请检查关键词或搜索列。', 'warn')
+    } else if (outs === 0 && matched === undefined) {
+        // splitter 类任务没有 RowsMatched 字段，改用输出文件数判断
+        showToast('任务完成但没有生成任何输出文件，请检查条件。', 'warn')
+    }
 }
 
 function onError(ev) {

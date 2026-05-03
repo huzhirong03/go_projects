@@ -5,13 +5,30 @@ import SplitView from './views/SplitView.vue'
 import Toast from './components/Toast.vue'
 import { installTaskListeners, resetTask } from './stores/task.js'
 import { restoreWindowState, installWindowStateSaver } from './stores/window.js'
+import { LogPrint } from '../wailsjs/runtime/runtime'
+import { LogStartup } from '../wailsjs/go/main/App'
+
+// timing 双写：前端 console + 后端 startup.log
+function logT(msg) {
+    LogPrint(`[STARTUP-FE] ${msg}`)
+    LogStartup(msg).catch(() => {}) // App binding 还没就绪时安全跳过
+}
+
+// 启动 timing：脚本加载到这里花了多久
+const _feT0 = performance.now()
+logT(`App.vue script setup at ${_feT0.toFixed(0)}ms (since page navigation)`)
 
 const activeTab = ref('extract') // extract | split
 
 onMounted(() => {
+    const t1 = performance.now()
+    logT(`App.vue onMounted at ${t1.toFixed(0)}ms (delta-from-setup ${(t1 - _feT0).toFixed(0)}ms)`)
     installTaskListeners()
-    // 窗口状态恢复走异步、不阻塞首屏；恢复完再装 resize 监听，避免恢复瞬间触发"假"保存
-    restoreWindowState().finally(() => installWindowStateSaver())
+    const tWin = performance.now()
+    restoreWindowState().finally(() => {
+        logT(`restoreWindowState (LoadConfig + WindowSetSize) took ${(performance.now() - tWin).toFixed(0)}ms`)
+        installWindowStateSaver()
+    })
 })
 
 function switchTab(tab) {

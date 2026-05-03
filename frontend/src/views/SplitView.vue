@@ -37,6 +37,11 @@ const defaults = {
 const form = reactive({ ...defaults, sheetNames: [] })
 const progressEl = ref(null)
 
+// 任务完成（成功或失败）时滚到底部，详见 ExtractView 同名 watch 注释。
+watch(() => [task.result, task.error], ([r, e]) => {
+    if (r || e) scrollToBottom()
+})
+
 const PERSIST_KEYS = Object.keys(defaults)
 
 const previewState = reactive({
@@ -101,6 +106,13 @@ function toggleSearchCol(col) {
     else form.searchColumns.push(col)
 }
 
+// 任务完成后滚到页面底部：见 ExtractView 同名函数注释
+function scrollToBottom() {
+    nextTick(() => {
+        window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })
+    })
+}
+
 async function submit() {
     if (!form.sourcePath) return showToast('请先选择源文件', 'warn')
     if (!form.outputDir) return showToast('请先选择输出目录', 'warn')
@@ -142,8 +154,7 @@ async function submit() {
             strategy: form.strategy,
         })
         startTask(handle.taskId)
-        await nextTick()
-        progressEl.value?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+        // 任务完成后由 watch(task.result/error) 自动滚到底部
     } catch (e) {
         showToast('启动失败：' + (e.message || e), 'error')
     }
