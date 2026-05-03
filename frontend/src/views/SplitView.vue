@@ -4,6 +4,7 @@ import PathPicker from '../components/PathPicker.vue'
 import ProgressPanel from '../components/ProgressPanel.vue'
 import SheetSelector from '../components/SheetSelector.vue'
 import Collapsible from '../components/Collapsible.vue'
+import AdvancedFilter from '../components/AdvancedFilter.vue'
 import { startSplit, previewFile } from '../api/split.js'
 import { task, startTask } from '../stores/task.js'
 import { showToast } from '../stores/toast.js'
@@ -12,6 +13,7 @@ import {
     SPLIT_BY_SHEET, SPLIT_BY_ROWS, SPLIT_BY_COLUMN, SPLIT_BY_KEYWORD,
     OUTPUT_PER_KEYWORD, OUTPUT_MERGED,
 } from '../types/events.js'
+import { FILTER_MODE_ALL, countActiveConditions, isMeaningfulCondition } from '../types/filter.js'
 
 const defaults = {
     sourcePath: '',
@@ -36,6 +38,9 @@ const defaults = {
     searchAllCols: true,
     searchColumns: [],
     strategy: OUTPUT_PER_KEYWORD,
+    // 高级筛选 V1.5+：仅 by_keyword 模式生效
+    advancedFilter: { mode: FILTER_MODE_ALL, conditions: [] },
+    advancedFilterPresets: [],
     foldPaths: false,
     foldMode: false,
 }
@@ -67,6 +72,8 @@ onMounted(async () => {
     } catch (e) {
         console.warn('恢复 split 配置失败:', e)
     }
+    // 智能默认：无激活条件 → 展开；有 → 收起 + 角标提示
+    advFilterOpen.value = activeFilterCount.value === 0
     watch(
         () => PERSIST_KEYS.map(k => form[k]),
         () => {
@@ -100,7 +107,22 @@ const isInplace = computed(() => inplaceAvailable.value && form.outputTarget ===
 watch(inplaceAvailable, (v) => {
     if (!v && form.outputTarget === 'inplace_sheets') form.outputTarget = 'new_files'
 })
-// SplitView 的策略只有 per_keyword / merged，不需要降级处理。
+
+// --- 高级筛选（仅 by_keyword 模式） ---
+const advFilterAvailable = computed(() => form.mode === SPLIT_BY_KEYWORD)
+const activeFilterCount = computed(() => countActiveConditions(form.advancedFilter))
+const hasActiveFilter = computed(() => activeFilterCount.value > 0)
+// 没关键词但有筛选 → per_keyword 没意义，自动降级 merged
+const filterOnlyMode = computed(() =>
+    advFilterAvailable.value && !form.keywordsRaw.trim() && hasActiveFilter.value
+)
+watch(filterOnlyMode, (v) => {
+    if (v && form.strategy === OUTPUT_PER_KEYWORD) form.strategy = OUTPUT_MERGED
+})
+const advFilterOpen = ref(false)
+const presetSaving = ref(false)
+const presetNewName = ref('')
+const presetSelected = ref('')
 
 // 选完文件 / 改了 headerRow → 自动预扫描。
 watch(() => [form.sourcePath, form.headerRow], async ([path]) => {
@@ -140,6 +162,68 @@ function scrollToBottom() {
     })
 }
 
+// --- 高级筛选预设管理（仅 by_keyword 模式有效，跟 ExtractView 行为一致） ---
+function applyPreset(name) {
+    const p = (form.advancedFilterPresets || []).find(x => x.name === name)
+    if (!p) return
+    form.advancedFilter = {
+        mode: p.mode || FILTER_MODE_ALL,
+        conditions: (p.conditions || []).map(c => ({ ...c })),
+    }
+    presetSelected.value = name
+    showToast(`已应用预设：${name}`, 'info')
+}
+function startSavePreset() {
+    if (!hasActiveFilter.value) {
+        showToast('当前没有任何条件，无需保存', 'warn')
+        return
+    }
+    presetSaving.value = true
+    presetNewName.value = presetSelected.value || ''
+}
+function cancelSavePreset() {
+    presetSaving.value = false
+    presetNewName.value = ''
+}
+function commitSavePreset() {
+    const name = (presetNewName.value || '').trim()
+    if (!name) {
+        showToast('预设名不能为空', 'warn')
+        return
+    }
+    const list = [...(form.advancedFilterPresets || [])]
+    const idx = list.findIndex(p => p.name === name)
+    const snap = {
+        name,
+        mode: form.advancedFilter.mode,
+        conditions: (form.advancedFilter.conditions || [])
+            .filter(isMeaningfulCondition)
+            .map(c => ({ ...c })),
+    }
+    if (idx >= 0) list[idx] = snap; else list.push(snap)
+    form.advancedFilterPresets = list
+    presetSelected.value = name
+    presetSaving.value = false
+    presetNewName.value = ''
+    showToast(idx >= 0 ? `已更新预设：${name}` : `已保存预设：${name}`, 'info')
+}
+function deletePreset() {
+    const name = presetSelected.value
+    if (!name) return
+    if (!confirm(`确认删除预设 "${name}"？`)) return
+    form.advancedFilterPresets = (form.advancedFilterPresets || []).filter(p => p.name !== name)
+    presetSelected.value = ''
+    showToast(`已删除预设：${name}`, 'info')
+}
+function buildAdvancedFilterDTO() {
+    if (!advFilterAvailable.value) return null
+    const sp = form.advancedFilter
+    if (!sp) return null
+    const conds = (sp.conditions || []).filter(isMeaningfulCondition).map(c => ({ ...c }))
+    if (conds.length === 0) return null
+    return { mode: sp.mode || FILTER_MODE_ALL, conditions: conds }
+}
+
 async function submit() {
     if (!form.sourcePath) return showToast('请先选择源文件', 'warn')
     if (!isInplace.value && !form.outputDir) return showToast('请先选择输出目录', 'warn')
@@ -153,8 +237,11 @@ async function submit() {
         return showToast('请填写拆分列名', 'warn')
     }
     if (form.mode === SPLIT_BY_KEYWORD) {
-        if (!form.keywordsRaw.trim()) return showToast('请输入至少一个关键词', 'warn')
-        if (!form.exact && !form.contains && !form.pinyin) {
+        // 关键词或高级筛选至少有一个
+        if (!form.keywordsRaw.trim() && !hasActiveFilter.value) {
+            return showToast('请至少填写一个关键词或一条高级筛选条件', 'warn')
+        }
+        if (form.keywordsRaw.trim() && !form.exact && !form.contains && !form.pinyin) {
             return showToast('请至少选择一种匹配模式', 'warn')
         }
     }
@@ -183,6 +270,7 @@ async function submit() {
             csvDelimiter: form.csvDelimiter,
             outputTarget: isInplace.value ? 'inplace_sheets' : 'new_files',
             backupSource: isInplace.value && form.backupSource,
+            advancedFilter: buildAdvancedFilterDTO(),
         })
         startTask(handle.taskId)
         // 任务完成后由 watch(task.result/error) 自动滚到底部
@@ -292,11 +380,50 @@ async function submit() {
                 <div class="field">
                     <label class="field-label">输出策略</label>
                     <div class="inline-group radio-group">
-                        <label><input type="radio" :value="OUTPUT_PER_KEYWORD" v-model="form.strategy" />
-                            每个关键词一个文件</label>
+                        <label :class="{ disabled: filterOnlyMode }"
+                               :title="filterOnlyMode ? '没填关键词时无法按关键词分组' : ''">
+                            <input type="radio" :value="OUTPUT_PER_KEYWORD" v-model="form.strategy"
+                                   :disabled="filterOnlyMode" />
+                            每个关键词一个文件
+                        </label>
                         <label><input type="radio" :value="OUTPUT_MERGED" v-model="form.strategy" />
                             合成一个文件</label>
                     </div>
+                </div>
+
+                <!-- 高级筛选：仅 by_keyword 模式显示 -->
+                <div class="field adv-filter-field">
+                    <details class="adv-filter-details" :open="advFilterOpen"
+                             @toggle="e => advFilterOpen = e.target.open">
+                        <summary class="adv-filter-summary">
+                            <span class="chevron-sm" aria-hidden="true">▶</span>
+                            <span class="adv-title">高级筛选</span>
+                            <span v-if="hasActiveFilter" class="adv-badge"
+                                  :title="`${activeFilterCount} 个条件激活中`">
+                                ⚠ {{ activeFilterCount }} 个条件激活
+                            </span>
+                        </summary>
+                        <div class="adv-filter-body">
+                            <div class="adv-presets">
+                                <span class="field-label" style="margin-right:8px">预设：</span>
+                                <select v-model="presetSelected" class="name-select"
+                                        @change="presetSelected && applyPreset(presetSelected)">
+                                    <option value="">— 选择预设 —</option>
+                                    <option v-for="p in form.advancedFilterPresets" :key="p.name" :value="p.name">{{ p.name }}</option>
+                                </select>
+                                <button v-if="!presetSaving" type="button" class="btn-mini" @click="startSavePreset">💾 另存为</button>
+                                <button v-if="presetSelected" type="button" class="btn-mini btn-danger" @click="deletePreset">🗑 删除</button>
+                                <template v-if="presetSaving">
+                                    <input type="text" v-model="presetNewName" placeholder="预设名"
+                                           class="name-input" style="width:160px"
+                                           @keyup.enter="commitSavePreset" @keyup.esc="cancelSavePreset" />
+                                    <button type="button" class="btn-mini btn-primary" @click="commitSavePreset">保存</button>
+                                    <button type="button" class="btn-mini" @click="cancelSavePreset">取消</button>
+                                </template>
+                            </div>
+                            <AdvancedFilter v-model="form.advancedFilter" :columns="previewState.columns" />
+                        </div>
+                    </details>
                 </div>
             </div>
 
@@ -460,7 +587,92 @@ async function submit() {
     cursor: pointer; font-size: 13px;
 }
 .radio-group { gap: 12px; }
+.radio-group label.disabled,
+.radio-group label.disabled input { cursor: not-allowed; opacity: 0.5; }
 .actions { display: flex; justify-content: flex-end; padding-top: 4px; }
+
+/* 高级筛选内嵌区（比独立 Collapsible 轻量） */
+.adv-filter-field {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 6px 10px;
+}
+.adv-filter-summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 4px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    user-select: none;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+}
+.adv-filter-summary::-webkit-details-marker { display: none; }
+.chevron-sm {
+    display: inline-block;
+    transition: transform var(--t-base) var(--ease);
+    color: var(--text-tertiary);
+    font-size: 9px;
+    width: 12px;
+}
+.adv-filter-details[open] .chevron-sm { transform: rotate(90deg); }
+.adv-title { flex: 0 0 auto; }
+.adv-filter-body {
+    padding-top: 6px;
+    border-top: 1px dashed var(--border);
+    margin-top: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.adv-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 8px;
+    background: #fff4e0;
+    color: #c97a08;
+    border: 1px solid #f0c989;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    user-select: none;
+}
+.adv-presets {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.btn-mini {
+    padding: 3px 10px;
+    font-size: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    color: var(--text-secondary);
+    border-radius: 4px;
+    cursor: pointer;
+}
+.btn-mini:hover { background: var(--surface-hover); color: var(--text); }
+.btn-mini.btn-primary {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+}
+.btn-mini.btn-danger {
+    color: var(--danger, #c43f3f);
+    border-color: var(--danger, #c43f3f);
+}
+.name-input {
+    height: 26px;
+    padding: 0 8px;
+    font-size: 13px;
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+}
 
 .kw-block {
     background: var(--surface-2);

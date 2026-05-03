@@ -25,8 +25,8 @@ func SplitByKeyword(ctx context.Context, task core.SplitTask, emitter core.Event
 	if err := validateCommon(task); err != nil {
 		return nil, err
 	}
-	if len(task.Keywords) == 0 {
-		return nil, core.New("INVALID_TASK", "Keywords 不能为空")
+	if len(task.Keywords) == 0 && task.AdvancedFilter.IsEmpty() {
+		return nil, core.New("INVALID_TASK", "至少需要一个关键词或一条高级筛选条件")
 	}
 	if task.Output == "" {
 		// 默认每关键词一个文件，最直观。
@@ -56,6 +56,7 @@ func SplitByKeyword(ctx context.Context, task core.SplitTask, emitter core.Event
 		CSVDelimiter:   task.CSVDelimiter,
 		OutputTarget:   task.OutputTarget,
 		BackupSource:   task.BackupSource,
+		AdvancedFilter: task.AdvancedFilter,
 	}
 	er, err := extractor.ExtractUnits(ctx, et, units, emitter)
 	if err != nil {

@@ -72,8 +72,9 @@ func buildSplitTask(req SplitRequest) (core.SplitTask, error) {
 	// SplitByKeyword 需要解析关键词、匹配模式、输出策略。
 	if mode == core.SplitByKeyword {
 		keywords := matcher.ParseKeywords(req.KeywordsRaw)
-		if len(keywords) == 0 {
-			return core.SplitTask{}, core.New("INVALID_TASK", "按关键词拆分需要至少 1 个关键词")
+		advFilter := toCoreAdvancedFilter(req.AdvancedFilter)
+		if len(keywords) == 0 && advFilter.IsEmpty() {
+			return core.SplitTask{}, core.New("INVALID_TASK", "按关键词拆分至少需要 1 个关键词或 1 条高级筛选条件")
 		}
 		var mm core.MatchMode
 		if req.Exact {
@@ -100,7 +101,7 @@ func buildSplitTask(req SplitRequest) (core.SplitTask, error) {
 		task.CSVEncoding = req.CSVEncoding
 		task.CSVDelimiter = req.CSVDelimiter
 		// 高级筛选仅在 by_keyword 模式生效；其他三模式即使前端传了也忽略。
-		task.AdvancedFilter = toCoreAdvancedFilter(req.AdvancedFilter)
+		task.AdvancedFilter = advFilter
 	}
 
 	return task, nil

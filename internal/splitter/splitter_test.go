@@ -202,6 +202,65 @@ func TestSplitByKeyword_OnlyOneSheet(t *testing.T) {
 	}
 }
 
+// V1.5 高级筛选：by_keyword 拆分里 AdvancedFilter 必须透传到 extractor，命中后二次过滤。
+func TestSplitByKeyword_WithAdvancedFilter(t *testing.T) {
+	src := buildFixture(t)
+	out := t.TempDir()
+	task := core.SplitTask{
+		SourcePath: src, Mode: core.SplitByKeyword,
+		OutputDir: out, HeaderRow: 1,
+		SheetNames:    []string{"Sheet1"}, // 只看 Sheet1 排除"库存"干扰
+		Keywords:      []string{"笔"},      // Sheet1 有"笔 D"=5 和"笔 E"=6 两行
+		MatchMode:     core.MatchContains,
+		SearchAllCols: true,
+		Output:        core.OutputMerged,
+		AdvancedFilter: &core.AdvancedFilterSpec{
+			Mode: "all",
+			Conditions: []core.AdvancedFilterCondition{
+				{Column: "价格", Op: "ge", Value: "6"}, // 仅保留 笔 E=6
+			},
+		},
+	}
+	result, err := SplitByKeyword(context.Background(), task, nil)
+	if err != nil {
+		t.Fatalf("SplitByKeyword: %v", err)
+	}
+	if result.RowsScanned != 1 {
+		t.Errorf("RowsScanned = %d, want 1 (filter ge 6)", result.RowsScanned)
+	}
+}
+
+// 仅高级筛选、无关键词：应自动降级 merged，单文件输出
+func TestSplitByKeyword_FilterOnly(t *testing.T) {
+	src := buildFixture(t)
+	out := t.TempDir()
+	task := core.SplitTask{
+		SourcePath: src, Mode: core.SplitByKeyword,
+		OutputDir: out, HeaderRow: 1,
+		SheetNames:    []string{"Sheet1"},
+		Keywords:      nil,
+		MatchMode:     core.MatchContains,
+		SearchAllCols: true,
+		Output:        core.OutputPerKeyword, // 应自动降级 merged
+		AdvancedFilter: &core.AdvancedFilterSpec{
+			Mode: "all",
+			Conditions: []core.AdvancedFilterCondition{
+				{Column: "类别", Op: "eq", Value: "文具"}, // 笔 D, 笔 E
+			},
+		},
+	}
+	result, err := SplitByKeyword(context.Background(), task, nil)
+	if err != nil {
+		t.Fatalf("SplitByKeyword: %v", err)
+	}
+	if result.RowsScanned != 2 {
+		t.Errorf("RowsScanned = %d, want 2 (类别='文具')", result.RowsScanned)
+	}
+	if result.PartsCreated != 1 {
+		t.Errorf("PartsCreated = %d, want 1 (per_keyword auto-downgraded)", result.PartsCreated)
+	}
+}
+
 func TestSplit_Dispatcher(t *testing.T) {
 	src := buildFixture(t)
 	task := core.SplitTask{
