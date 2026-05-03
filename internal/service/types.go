@@ -28,6 +28,12 @@ type ExtractRequest struct {
 	// CSV 源可选参数；空字符串 = 自动推断。xlsx 源忽略。
 	CSVEncoding  string `json:"csvEncoding"`
 	CSVDelimiter string `json:"csvDelimiter"`
+
+	// 输出目标（仅单文件 + xlsx 源生效，其它场景自动回退为 new_files）
+	// "" / "new_files" = 默认输出新文件
+	// "inplace_sheets" = 写回源文件新 Sheet
+	OutputTarget string `json:"outputTarget"`
+	BackupSource bool   `json:"backupSource"` // inplace 前是否生成 .bak
 }
 
 // SplitRequest 是前端请求单文件拆分时提交的 DTO。
@@ -54,6 +60,10 @@ type SplitRequest struct {
 	// CSV 源可选参数（仅 by_keyword + .csv 生效）
 	CSVEncoding  string `json:"csvEncoding"`
 	CSVDelimiter string `json:"csvDelimiter"`
+
+	// 输出目标（xlsx 源生效；by_sheet / CSV 源自动回退为 new_files）
+	OutputTarget string `json:"outputTarget"`
+	BackupSource bool   `json:"backupSource"`
 }
 
 // TaskHandle 是启动任务后返回给前端的句柄。

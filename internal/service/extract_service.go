@@ -209,7 +209,19 @@ func buildExtractTask(req ExtractRequest) (core.ExtractTask, error) {
 		FilenamePrefix: req.FilenamePrefix,
 		CSVEncoding:    req.CSVEncoding,
 		CSVDelimiter:   req.CSVDelimiter,
+		OutputTarget:   parseOutputTarget(req.OutputTarget),
+		BackupSource:   req.BackupSource,
 	}, nil
+}
+
+// parseOutputTarget 把前端字符串翻译成 core.OutputTarget，未知值一律回退为 new_files。
+func parseOutputTarget(s string) core.OutputTarget {
+	switch core.OutputTarget(s) {
+	case core.OutputTargetInplaceSheets:
+		return core.OutputTargetInplaceSheets
+	default:
+		return core.OutputTargetNewFiles
+	}
 }
 
 func parseStrategy(s string) (core.OutputStrategy, error) {

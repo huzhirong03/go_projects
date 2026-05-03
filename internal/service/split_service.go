@@ -46,7 +46,9 @@ func buildSplitTask(req SplitRequest) (core.SplitTask, error) {
 	if req.SourcePath == "" {
 		return core.SplitTask{}, core.New("INVALID_TASK", "SourcePath 不能为空")
 	}
-	if req.OutputDir == "" {
+	outputTarget := parseOutputTarget(req.OutputTarget)
+	// inplace 时 OutputDir 可为空（结果写回源文件，不需要输出目录）
+	if outputTarget != core.OutputTargetInplaceSheets && req.OutputDir == "" {
 		return core.SplitTask{}, core.New("INVALID_TASK", "OutputDir 不能为空")
 	}
 	headerRow := req.HeaderRow
@@ -63,6 +65,8 @@ func buildSplitTask(req SplitRequest) (core.SplitTask, error) {
 		HeaderRow:      headerRow,
 		PreserveImages: req.PreserveImages,
 		SheetNames:     req.SheetNames,
+		OutputTarget:   outputTarget,
+		BackupSource:   req.BackupSource,
 	}
 
 	// SplitByKeyword 需要解析关键词、匹配模式、输出策略。

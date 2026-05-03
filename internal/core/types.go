@@ -23,6 +23,17 @@ const (
 	OutputPerSource  OutputStrategy = "per_source"  // 每个源文件一个新文件
 )
 
+// OutputTarget 输出目标：新文件 vs 写回源文件新 Sheet。
+//   - OutputTargetNewFiles: 默认行为，输出到 OutputDir（所有现有语义不变）
+//   - OutputTargetInplaceSheets: 把结果以"新 Sheet"形式追加到源文件里（仅单文件模式有效）
+//     inplace 下 OutputDir 被忽略。
+type OutputTarget string
+
+const (
+	OutputTargetNewFiles      OutputTarget = "new_files"
+	OutputTargetInplaceSheets OutputTarget = "inplace_sheets"
+)
+
 // SplitMode 单文件拆分模式。
 type SplitMode string
 
@@ -54,6 +65,10 @@ type ExtractTask struct {
 	// CSV 源专用（仅源含有 .csv 时生效，xlsx 源忽略）
 	CSVEncoding  string // "" = 自动嗅探；允许 "utf-8" / "gbk" / "gb18030" / "big5" / "utf-16" 等
 	CSVDelimiter string // "" = 自动推断；允许 "," / ";" / "\t" / "|"
+
+	// inplace 输出相关（仅单文件模式 + xlsx 源生效；CSV / 文件夹会在服务层拦截）
+	OutputTarget OutputTarget // "" 视作 OutputTargetNewFiles
+	BackupSource bool         // 为 true 且 OutputTarget=inplace 时，先生成 .bak 再写回
 }
 
 // SplitTask 单文件拆分任务。
@@ -80,6 +95,10 @@ type SplitTask struct {
 	// CSV 源专用（仅 SplitByKeyword + .csv 生效）
 	CSVEncoding  string
 	CSVDelimiter string
+
+	// inplace 输出相关（仅 xlsx 源生效；by_sheet 模式不适用，服务层拦截）
+	OutputTarget OutputTarget
+	BackupSource bool
 }
 
 // Progress 任务进度快照。Done == Total 表示完成。
