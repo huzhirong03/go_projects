@@ -3,6 +3,7 @@ import { reactive, watch, onMounted, toRaw } from 'vue'
 import PathPicker from '../components/PathPicker.vue'
 import ProgressPanel from '../components/ProgressPanel.vue'
 import SheetSelector from '../components/SheetSelector.vue'
+import Collapsible from '../components/Collapsible.vue'
 import { previewFolder, startExtract } from '../api/extract.js'
 import { task, startTask } from '../stores/task.js'
 import { showToast } from '../stores/toast.js'
@@ -24,6 +25,10 @@ const defaults = {
     searchColumns: [],
     strategy: OUTPUT_PER_KEYWORD,
     preserveImages: true,
+    // 折叠状态（默认全展开）
+    foldPaths: false,
+    foldKeywords: false,
+    foldRange: false,
 }
 
 const form = reactive({ ...defaults, sheetNames: [] })
@@ -134,45 +139,54 @@ async function submit() {
 
 <template>
     <div class="view">
-        <h2 class="view-title">批量提取</h2>
-        <p class="view-desc">从文件夹中扫描所有 Excel，按关键词提取命中行到新文件，图片跟随行。</p>
+        <div class="view-header">
+            <h2 class="view-title">批量提取</h2>
+            <span class="view-desc">从文件夹中扫描所有 Excel，按关键词提取命中行到新文件，图片跟随行。</span>
+        </div>
 
-        <div class="card">
-            <PathPicker v-model="form.folderPath" mode="folder"
-                        label="源文件夹" placeholder="选择含多个 Excel 的文件夹" />
-
-            <PathPicker v-model="form.outputDir" mode="folder"
-                        label="输出目录" placeholder="结果会写到这个目录" />
-
-            <div class="field">
-                <label class="field-label">关键词（逗号/空格/顿号分隔）</label>
-                <textarea v-model="form.keywordsRaw" rows="2"
-                          placeholder="例如：口红, 眼影, fd"></textarea>
+        <Collapsible title="路径配置" :open="!form.foldPaths" @update:open="v => form.foldPaths = !v">
+            <div class="row-2col">
+                <PathPicker v-model="form.folderPath" mode="folder"
+                            label="源文件夹" placeholder="选择含多个 Excel 的文件夹" />
+                <PathPicker v-model="form.outputDir" mode="folder"
+                            label="输出目录" placeholder="结果会写到这个目录" />
             </div>
+        </Collapsible>
 
-            <div class="field">
-                <label class="field-label">匹配模式</label>
-                <div class="inline-group">
-                    <label><input type="checkbox" v-model="form.exact" /> 精准</label>
-                    <label><input type="checkbox" v-model="form.contains" /> 包含</label>
-                    <label><input type="checkbox" v-model="form.pinyin" /> 拼音（含首字母）</label>
+        <Collapsible title="关键词与匹配" :open="!form.foldKeywords" @update:open="v => form.foldKeywords = !v">
+            <div class="row-2col">
+                <div class="field">
+                    <label class="field-label">关键词（逗号/空格/顿号分隔）</label>
+                    <textarea v-model="form.keywordsRaw" rows="2"
+                              placeholder="例如：口红, 眼影, fd"></textarea>
+                </div>
+                <div class="field">
+                    <label class="field-label">匹配模式</label>
+                    <div class="inline-group match-group">
+                        <label><input type="checkbox" v-model="form.exact" /> 精准</label>
+                        <label><input type="checkbox" v-model="form.contains" /> 包含</label>
+                        <label><input type="checkbox" v-model="form.pinyin" /> 拼音（含首字母）</label>
+                    </div>
                 </div>
             </div>
+        </Collapsible>
 
+        <Collapsible title="数据范围" :open="!form.foldRange" @update:open="v => form.foldRange = !v">
             <div class="field">
-                <label class="field-label">表头行号</label>
+                <div class="label-row">
+                    <label class="field-label">表头行号</label>
+                    <span class="field-hint">0 表示无表头</span>
+                </div>
                 <input type="number" min="0" v-model.number="form.headerRow" style="width:80px" />
-                <span class="field-hint">0 表示无表头</span>
             </div>
-
-            <!-- Sheet 选择（仅多 Sheet 时渲染勾选 UI）-->
             <SheetSelector v-model="form.sheetNames" :sheets="previewState.sheets" />
-
             <div class="field">
-                <label class="field-label">搜索范围</label>
-                <div class="inline-group">
-                    <label><input type="radio" :value="true" v-model="form.searchAllCols" /> 全列搜索</label>
-                    <label><input type="radio" :value="false" v-model="form.searchAllCols" /> 指定列</label>
+                <div class="label-row">
+                    <label class="field-label">搜索范围</label>
+                    <div class="inline-group">
+                        <label><input type="radio" :value="true" v-model="form.searchAllCols" /> 全列搜索</label>
+                        <label><input type="radio" :value="false" v-model="form.searchAllCols" /> 指定列</label>
+                    </div>
                 </div>
                 <div v-if="!form.searchAllCols" class="column-selector">
                     <span v-if="previewState.firstFile" class="field-hint">
@@ -189,28 +203,25 @@ async function submit() {
                     </div>
                 </div>
             </div>
+        </Collapsible>
 
-            <div class="field">
-                <label class="field-label">输出策略</label>
-                <div class="inline-group radio-group">
-                    <label><input type="radio" :value="OUTPUT_PER_KEYWORD" v-model="form.strategy" />
-                        每个关键词一个文件</label>
-                    <label><input type="radio" :value="OUTPUT_MERGED" v-model="form.strategy" />
-                        合成一个文件</label>
-                    <label><input type="radio" :value="OUTPUT_PER_SOURCE" v-model="form.strategy" />
-                        每个源文件一个</label>
-                </div>
+        <div class="strip">
+            <span class="strip-title">输出策略</span>
+            <div class="inline-group radio-group">
+                <label><input type="radio" :value="OUTPUT_PER_KEYWORD" v-model="form.strategy" />
+                    每个关键词一个文件</label>
+                <label><input type="radio" :value="OUTPUT_MERGED" v-model="form.strategy" />
+                    合成一个文件</label>
+                <label><input type="radio" :value="OUTPUT_PER_SOURCE" v-model="form.strategy" />
+                    每个源文件一个</label>
             </div>
+            <label class="keep-images"><input type="checkbox" v-model="form.preserveImages" /> 保留图片（跟随行）</label>
+        </div>
 
-            <div class="field">
-                <label><input type="checkbox" v-model="form.preserveImages" /> 保留图片（跟随行）</label>
-            </div>
-
-            <div class="actions">
-                <button class="btn btn-primary" :disabled="task.running" @click="submit">
-                    {{ task.running ? '运行中…' : '开始提取' }}
-                </button>
-            </div>
+        <div class="actions">
+            <button class="btn btn-primary" :disabled="task.running" @click="submit">
+                {{ task.running ? '运行中…' : '开始提取' }}
+            </button>
         </div>
 
         <ProgressPanel />
@@ -219,8 +230,30 @@ async function submit() {
 
 <style scoped>
 .view { display: flex; flex-direction: column; gap: 16px; }
+.view-header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
 .view-title { margin: 0; font-size: 20px; color: #f1f5f9; }
-.view-desc { margin: 0; color: #94a3b8; font-size: 13px; }
+.view-desc { color: #94a3b8; font-size: 13px; }
+.label-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.keep-images { margin-left: auto; color: #cbd5e1; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.row-2col {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 14px;
+    align-items: start;
+}
+.match-group { padding-top: 4px; }
+.strip {
+    background: #1f2738;
+    border: 1px solid #2d3748;
+    border-radius: 8px;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    color: #cbd5e1;
+}
+.strip-title { font-size: 14px; font-weight: 600; color: #e2e8f0; }
 .card {
     background: #1f2738;
     border: 1px solid #2d3748;

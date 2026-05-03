@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch, onBeforeUnmount } from 'vue'
 import { task, resetTask, clearFileBlocked } from '../stores/task.js'
 import { cancelTask, openPath, respondFileBlocked } from '../api/index.js'
 import { showToast } from '../stores/toast.js'
@@ -14,6 +14,35 @@ const statusText = computed(() => {
     if (task.result) return '完成'
     if (task.running) return '运行中'
     return '空闲'
+})
+
+// 计时器：运行中每 500ms 触发一次刷新，让 elapsed 的 computed 重新求值。
+const nowTick = ref(Date.now())
+let timer = null
+watch(() => task.running, (running) => {
+    if (running) {
+        if (timer) return
+        timer = setInterval(() => { nowTick.value = Date.now() }, 500)
+    } else {
+        if (timer) { clearInterval(timer); timer = null }
+        nowTick.value = Date.now()
+    }
+}, { immediate: true })
+onBeforeUnmount(() => { if (timer) clearInterval(timer) })
+
+function fmtElapsed(ms) {
+    if (ms <= 0) return ''
+    const s = Math.floor(ms / 1000)
+    if (s < 60) return s + ' 秒'
+    const m = Math.floor(s / 60)
+    const rem = s % 60
+    return `${m} 分 ${rem} 秒`
+}
+
+const elapsedText = computed(() => {
+    if (!task.startedAt) return ''
+    const end = task.endedAt || nowTick.value
+    return fmtElapsed(end - task.startedAt)
 })
 
 async function doCancel() {
@@ -53,15 +82,19 @@ async function replyFileBlocked(action) {
             }">
                 {{ statusText }}
             </div>
-            <div class="progress-stage">{{ task.stage || '—' }}</div>
+            <div class="progress-stage" v-if="task.stage">{{ task.stage }}</div>
+            <div class="progress-msg" v-if="task.progressMsg" :title="task.progressMsg">
+                {{ task.progressMsg }}
+            </div>
             <div class="progress-pct" v-if="task.running">{{ percent }}%</div>
+            <div v-if="elapsedText" class="progress-elapsed" :title="task.running ? '已用时' : '总耗时'">
+                ⏱ {{ elapsedText }}
+            </div>
         </div>
 
         <div class="progress-bar" v-if="task.running">
             <div class="progress-fill" :style="{ width: percent + '%' }"></div>
         </div>
-
-        <div class="progress-msg" v-if="task.progressMsg">{{ task.progressMsg }}</div>
 
         <!-- 日志窗口 -->
         <div class="log-window" v-if="task.logs.length">
@@ -153,6 +186,14 @@ async function replyFileBlocked(action) {
 .status-badge.error { background: #dc2626; color: white; }
 .progress-stage { font-size: 13px; color: #94a3b8; }
 .progress-pct { margin-left: auto; font-weight: 600; color: #e2e8f0; }
+.progress-elapsed {
+    font-size: 12px;
+    color: #cbd5e1;
+    background: #0f172a;
+    padding: 2px 8px;
+    border-radius: 10px;
+    white-space: nowrap;
+}
 .progress-bar {
     width: 100%;
     height: 8px;
@@ -165,7 +206,16 @@ async function replyFileBlocked(action) {
     background: linear-gradient(90deg, #3b82f6, #06b6d4);
     transition: width 0.2s ease;
 }
-.progress-msg { font-size: 12px; color: #94a3b8; font-family: monospace; }
+.progress-msg {
+    font-size: 12px;
+    color: #94a3b8;
+    font-family: monospace;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
 
 .log-window {
     max-height: 200px;

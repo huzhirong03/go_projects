@@ -3,6 +3,7 @@ import { reactive, watch, computed, onMounted, toRaw } from 'vue'
 import PathPicker from '../components/PathPicker.vue'
 import ProgressPanel from '../components/ProgressPanel.vue'
 import SheetSelector from '../components/SheetSelector.vue'
+import Collapsible from '../components/Collapsible.vue'
 import { startSplit, previewFile } from '../api/split.js'
 import { task, startTask } from '../stores/task.js'
 import { showToast } from '../stores/toast.js'
@@ -29,6 +30,8 @@ const defaults = {
     searchAllCols: true,
     searchColumns: [],
     strategy: OUTPUT_PER_KEYWORD,
+    foldPaths: false,
+    foldMode: false,
 }
 
 const form = reactive({ ...defaults, sheetNames: [] })
@@ -146,18 +149,22 @@ async function submit() {
 
 <template>
     <div class="view">
-        <h2 class="view-title">单文件拆分</h2>
-        <p class="view-desc">把一个大 Excel 按 Sheet / 行数 / 列值 / 关键词拆成多个文件，格式与图片全保留。</p>
+        <div class="view-header">
+            <h2 class="view-title">单文件拆分</h2>
+            <span class="view-desc">把一个大 Excel 按 Sheet / 行数 / 列值 / 关键词拆成多个文件，格式与图片全保留。</span>
+        </div>
 
-        <div class="card">
-            <PathPicker v-model="form.sourcePath" mode="file"
-                        label="源文件" placeholder="选择要拆分的 .xlsx" />
+        <Collapsible title="路径配置" :open="!form.foldPaths" @update:open="v => form.foldPaths = !v">
+            <div class="row-2col">
+                <PathPicker v-model="form.sourcePath" mode="file"
+                            label="源文件" placeholder="选择要拆分的 .xlsx" />
+                <PathPicker v-model="form.outputDir" mode="folder"
+                            label="输出目录" placeholder="拆分结果输出到此" />
+            </div>
+        </Collapsible>
 
-            <PathPicker v-model="form.outputDir" mode="folder"
-                        label="输出目录" placeholder="拆分结果输出到此" />
-
+        <Collapsible title="拆分方式" :open="!form.foldMode" @update:open="v => form.foldMode = !v">
             <div class="field">
-                <label class="field-label">拆分方式</label>
                 <div class="inline-group radio-group">
                     <label><input type="radio" :value="SPLIT_BY_SHEET" v-model="form.mode" />
                         按 Sheet</label>
@@ -169,8 +176,6 @@ async function submit() {
                         按关键词</label>
                 </div>
             </div>
-
-            <!-- Sheet 选择（仅多 Sheet 时渲染勾选 UI）-->
             <SheetSelector v-model="form.sheetNames" :sheets="previewState.sheets" />
 
             <!-- 模式专属字段：按行数 -->
@@ -231,21 +236,22 @@ async function submit() {
                 </div>
             </div>
 
-            <div class="field" v-if="needsHeader">
+        </Collapsible>
+
+        <div class="strip">
+            <span class="strip-title">输出选项</span>
+            <template v-if="needsHeader">
                 <label class="field-label">表头行号</label>
-                <input type="number" min="0" v-model.number="form.headerRow" style="width:80px" />
-                <span class="field-hint">每份都会复制这一行作为表头</span>
-            </div>
+                <input type="number" min="0" v-model.number="form.headerRow" style="width:64px" />
+                <span class="field-hint">每份复制该行作表头</span>
+            </template>
+            <label class="keep-images"><input type="checkbox" v-model="form.preserveImages" /> 保留图片</label>
+        </div>
 
-            <div class="field">
-                <label><input type="checkbox" v-model="form.preserveImages" /> 保留图片</label>
-            </div>
-
-            <div class="actions">
-                <button class="btn btn-primary" :disabled="task.running" @click="submit">
-                    {{ task.running ? '运行中…' : '开始拆分' }}
-                </button>
-            </div>
+        <div class="actions">
+            <button class="btn btn-primary" :disabled="task.running" @click="submit">
+                {{ task.running ? '运行中…' : '开始拆分' }}
+            </button>
         </div>
 
         <ProgressPanel />
@@ -254,8 +260,29 @@ async function submit() {
 
 <style scoped>
 .view { display: flex; flex-direction: column; gap: 16px; }
+.view-header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
 .view-title { margin: 0; font-size: 20px; color: #f1f5f9; }
-.view-desc { margin: 0; color: #94a3b8; font-size: 13px; }
+.view-desc { color: #94a3b8; font-size: 13px; }
+.label-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.row-2col {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 14px;
+    align-items: start;
+}
+.strip {
+    background: #1f2738;
+    border: 1px solid #2d3748;
+    border-radius: 8px;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    color: #cbd5e1;
+}
+.strip-title { font-size: 14px; font-weight: 600; color: #e2e8f0; }
+.keep-images { margin-left: auto; color: #cbd5e1; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
 .card {
     background: #1f2738;
     border: 1px solid #2d3748;

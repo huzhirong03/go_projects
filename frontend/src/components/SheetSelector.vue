@@ -59,7 +59,10 @@ function isChecked(name) {
     <!-- 多 Sheet：完整 UI -->
     <div v-else-if="isMulti" class="sheet-selector multi">
         <div class="header">
-            <label class="field-label">{{ label }}</label>
+            <div class="label-row">
+                <label class="field-label">{{ label }}</label>
+                <span class="hint">{{ hintAll }}</span>
+            </div>
             <div class="actions">
                 <button class="btn-mini" type="button" @click="selectAll">全选</button>
                 <button class="btn-mini" type="button" @click="selectNone">反选</button>
@@ -73,7 +76,6 @@ function isChecked(name) {
                 <span class="chip-name">{{ s }}</span>
             </label>
         </div>
-        <div class="hint">{{ hintAll }}</div>
     </div>
 </template>
 
@@ -97,6 +99,7 @@ function isChecked(name) {
     gap: 8px;
 }
 .field-label { font-size: 13px; color: #a9b4c6; font-weight: 500; }
+.label-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .actions { display: flex; gap: 6px; align-items: center; }
 .btn-mini {
     background: #334155;

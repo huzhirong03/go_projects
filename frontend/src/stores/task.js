@@ -18,6 +18,8 @@ const state = reactive({
     result: null,    // 完成后回填
     error: null,     // { code, message } 失败后回填
     fileBlocked: null,
+    startedAt: 0,    // 任务启动时间戳（ms）
+    endedAt: 0,      // 任务完成/失败时间戳（ms）
 })
 
 let subscribed = false
@@ -40,12 +42,14 @@ function onDone(ev) {
     if (!state.taskId || ev.taskId !== state.taskId) return
     state.result = ev.result
     state.running = false
+    state.endedAt = Date.now()
 }
 
 function onError(ev) {
     if (!state.taskId || ev.taskId !== state.taskId) return
     state.error = { code: ev.code, message: ev.message }
     state.running = false
+    state.endedAt = Date.now()
     state.fileBlocked = null
 }
 
@@ -88,6 +92,8 @@ export function startTask(taskId) {
     state.result = null
     state.error = null
     state.fileBlocked = null
+    state.startedAt = Date.now()
+    state.endedAt = 0
 }
 
 /** 重置状态（不取消后端，仅前端清空）。 */
@@ -102,6 +108,8 @@ export function resetTask() {
     state.result = null
     state.error = null
     state.fileBlocked = null
+    state.startedAt = 0
+    state.endedAt = 0
 }
 
 export function clearFileBlocked() {

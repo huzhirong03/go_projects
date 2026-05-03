@@ -3,6 +3,7 @@ package extractor
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"excel-master/internal/core"
 	"excel-master/internal/excelio"
@@ -11,7 +12,7 @@ import (
 )
 
 // 每处理 N 行检查一次 context 取消与发射进度事件。
-const progressEvery = 500
+const progressEvery = 100
 
 // Extract 是文件夹批量提取的总入口。
 // 流程：Scan -> Schema -> MatchEngine -> 遍历每个文件流式匹配 -> OutputWriter -> Finalize
@@ -148,6 +149,7 @@ func processFile(
 ) (int, bool, error) {
 	var r *excelio.Reader
 	var err error
+	tOpen := time.Now()
 	for {
 		switch askOfficeLockDecision(ctx, emitter, fs.File.Path) {
 		case fileOpenRetry:
@@ -175,38 +177,72 @@ func processFile(
 		}
 	}
 	defer r.Close()
+	emitter.Log(core.LogInfo, fmt.Sprintf("[TIMING] 打开文件 %v: %s [%s]",
+		time.Since(tOpen).Round(time.Millisecond), fs.File.Path, fs.File.SheetName))
 
-	var picIdx *excelio.PictureIndex
+	// 阶段 1（新路径）：用 archive/zip 直读 xlsx，解析 drawing.xml 建 row→anchor 索引。
+	// 比 excelize O(N²) 的 GetPictures 路径快 1-2 个数量级；
+	// zip 打开失败或没图时降级为"不带图"继续，不阻断主流程。
+	var rowToRefs map[int][]excelio.PictureCellRef
+	var zipSrc *excelio.ZipImageSource
 	if task.PreserveImages {
-		picIdx, err = excelio.BuildPictureIndex(r.File(), fs.File.SheetName)
+		emitter.Progress(core.Progress{
+			Stage:   "indexing-picture-meta",
+			Message: "扫描图片位置: " + fs.File.Path + " [" + fs.File.SheetName + "]",
+		})
+		tStage := time.Now()
+		zipSrc, err = excelio.OpenZipImageSource(fs.File.Path)
 		if err != nil {
-			// 图片索引失败不中断，降级为不带图。
-			emitter.Log(core.LogWarn, "构建图片索引失败，跳过图片: "+err.Error())
-			picIdx = nil
+			emitter.Log(core.LogWarn, "zip 打开失败，跳过图片: "+err.Error())
+		} else {
+			defer zipSrc.Close()
+			if err := zipSrc.LoadSheetAnchors(fs.File.SheetName); err != nil {
+				emitter.Log(core.LogWarn, "扫描 drawing.xml 失败，跳过图片: "+err.Error())
+				zipSrc = nil
+			} else {
+				rowToRefs = zipSrc.PictureCellsByRow(fs.File.SheetName)
+				emitter.Log(core.LogInfo, fmt.Sprintf("[TIMING] 扫描图片元数据(zip) %v: 共 %d 行有图",
+					time.Since(tStage).Round(time.Millisecond), len(rowToRefs)))
+			}
 		}
 	}
 
 	fileSearchCols := fs.FileSearchColumns(unifiedSearchCols)
 
+	// 阶段 2：流式行迭代，收集命中行到内存（不加载图片字节）。
 	it, err := r.Iterate(fs.File.SheetName)
 	if err != nil {
 		return 0, false, err
 	}
 	defer it.Close()
 
-	matched := 0
+	type stagedRow struct {
+		rowNum int
+		kw     string
+		values []any
+		height float64
+	}
+	var matchedRows []stagedRow
+
+	tScan := time.Now()
+	lastRowNum := 0
 	for it.Next() {
 		if it.RowNum() <= task.HeaderRow { // 跳过表头
 			continue
 		}
 		if it.RowNum()%progressEvery == 0 {
 			if err := pipeline.CheckCancel(ctx); err != nil {
-				return matched, false, err
+				return len(matchedRows), false, err
 			}
+			emitter.Progress(core.Progress{
+				Stage:   "scanning",
+				Message: fmt.Sprintf("扫描行 %d (%s)", it.RowNum(), fs.File.SheetName),
+			})
 		}
+		lastRowNum = it.RowNum()
 		cells, err := it.Columns()
 		if err != nil {
-			return matched, false, err
+			return len(matchedRows), false, err
 		}
 		kw := eng.MatchRow(cells, fileSearchCols)
 		if kw == "" {
@@ -216,30 +252,77 @@ func processFile(
 		// V1.1：仅对命中行做公式查询（昂贵但只在命中时触发，性能影响有限）。
 		formulas := readRowFormulas(r, fs.File.SheetName, it.RowNum(), len(cells))
 		values := fs.AlignRowWithFormulas(cells, formulas, len(schema.Columns))
-
-		// 复刻源行高（默认值视为未设置，让目标用默认）。
 		height, _, _ := r.RowHeight(fs.File.SheetName, it.RowNum())
 
+		matchedRows = append(matchedRows, stagedRow{
+			rowNum: it.RowNum(),
+			kw:     kw,
+			values: values,
+			height: height,
+		})
+	}
+	if err := it.Err(); err != nil {
+		return len(matchedRows), false, err
+	}
+	emitter.Log(core.LogInfo, fmt.Sprintf("[TIMING] 扫描匹配 %v: %d 行 -> 命中 %d 行",
+		time.Since(tScan).Round(time.Millisecond), lastRowNum, len(matchedRows)))
+
+	// 阶段 3：按需从 zip 直读命中行的图片字节。新路径完全绕过 excelize.GetPictures，
+	// 预计把 O(N²) 的 anchor 扫描 + 重复 image.DecodeConfig 压缩到 O(命中行)。
+	var picsByRow map[int][]excelio.CellPictures
+	if task.PreserveImages && zipSrc != nil && rowToRefs != nil && len(matchedRows) > 0 {
+		rows := make([]int, 0, len(matchedRows))
+		for _, m := range matchedRows {
+			if _, ok := rowToRefs[m.rowNum]; ok {
+				rows = append(rows, m.rowNum)
+			}
+		}
+		if len(rows) > 0 {
+			tLoad := time.Now()
+			picProgress := func(done, total int) {
+				emitter.Progress(core.Progress{
+					Stage: "loading-images",
+					Done:  int64(done), Total: int64(total),
+					Message: fmt.Sprintf("加载命中行图片 %d / %d", done, total),
+				})
+			}
+			picsByRow, err = zipSrc.LoadPicturesForRowsZip(fs.File.SheetName, rows, picProgress)
+			if err != nil {
+				emitter.Log(core.LogWarn, "zip 加载命中行图片失败，降级为不带图: "+err.Error())
+				picsByRow = nil
+			} else {
+				emitter.Log(core.LogInfo, fmt.Sprintf("[TIMING] 加载命中行图片(zip) %v: %d 行",
+					time.Since(tLoad).Round(time.Millisecond), len(rows)))
+			}
+		}
+	}
+
+	// 阶段 4：按命中顺序 EmitRow 到 writer。
+	tEmit := time.Now()
+	for _, m := range matchedRows {
+		if err := pipeline.CheckCancel(ctx); err != nil {
+			return len(matchedRows), false, err
+		}
 		var pics []excelio.CellPictures
-		if picIdx != nil {
-			pics = picIdx.PicturesOnRow(it.RowNum())
+		if picsByRow != nil {
+			pics = picsByRow[m.rowNum]
 		}
 		if err := ow.EmitRow(MatchedRow{
 			SourceFile: fs.File.Path,
-			SourceRow:  it.RowNum(),
-			MatchedKW:  kw,
-			Values:     values,
+			SourceRow:  m.rowNum,
+			MatchedKW:  m.kw,
+			Values:     m.values,
 			Pictures:   pics,
-			RowHeight:  height,
+			RowHeight:  m.height,
 		}, fs); err != nil {
-			return matched, false, err
+			return len(matchedRows), false, err
 		}
-		matched++
 	}
-	if err := it.Err(); err != nil {
-		return matched, false, err
+	if len(matchedRows) > 0 {
+		emitter.Log(core.LogInfo, fmt.Sprintf("[TIMING] 写入命中行 %v: %d 行",
+			time.Since(tEmit).Round(time.Millisecond), len(matchedRows)))
 	}
-	return matched, false, nil
+	return len(matchedRows), false, nil
 }
 
 func validateTask(t core.ExtractTask) error {
