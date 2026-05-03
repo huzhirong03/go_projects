@@ -99,6 +99,8 @@ func buildSplitTask(req SplitRequest) (core.SplitTask, error) {
 		task.Output = strategy
 		task.CSVEncoding = req.CSVEncoding
 		task.CSVDelimiter = req.CSVDelimiter
+		// 高级筛选仅在 by_keyword 模式生效；其他三模式即使前端传了也忽略。
+		task.AdvancedFilter = toCoreAdvancedFilter(req.AdvancedFilter)
 	}
 
 	return task, nil

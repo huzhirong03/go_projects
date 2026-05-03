@@ -211,6 +211,7 @@ func buildExtractTask(req ExtractRequest) (core.ExtractTask, error) {
 		CSVDelimiter:   req.CSVDelimiter,
 		OutputTarget:   parseOutputTarget(req.OutputTarget),
 		BackupSource:   req.BackupSource,
+		AdvancedFilter: toCoreAdvancedFilter(req.AdvancedFilter),
 	}, nil
 }
 

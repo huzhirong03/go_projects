@@ -34,6 +34,41 @@ const (
 	OutputTargetInplaceSheets OutputTarget = "inplace_sheets"
 )
 
+// AdvancedFilterSpec 高级筛选规格（V1.5+）。
+//
+// 跟 internal/filter.Spec 是字段对偶关系；之所以在 core 里再定义一份，
+// 是为了让 core 不反向依赖 internal/filter（core 是最底层）。
+// 适配/编译由 extractor 在拿到具体 headers 后调用 internal/filter.Compile 完成。
+//
+//   - Mode: "all" / "any"；空或非法值视作 "all"
+//   - Conditions: 条件列表；空 = 不启用，行为完全跟旧版一致
+type AdvancedFilterSpec struct {
+	Mode       string // "all" / "any"
+	Conditions []AdvancedFilterCondition
+}
+
+// AdvancedFilterCondition 单条件。Op 命名跟 internal/filter.Op 一致。
+type AdvancedFilterCondition struct {
+	Column string
+	Op     string
+	Value  string
+	Value2 string
+	Format string
+}
+
+// IsEmpty 等同于"无筛选"——extractor 可据此短路绕过 filter 调用。
+func (s *AdvancedFilterSpec) IsEmpty() bool {
+	if s == nil || len(s.Conditions) == 0 {
+		return true
+	}
+	for _, c := range s.Conditions {
+		if c.Column != "" && c.Op != "" {
+			return false
+		}
+	}
+	return true
+}
+
 // SplitMode 单文件拆分模式。
 type SplitMode string
 
@@ -69,6 +104,10 @@ type ExtractTask struct {
 	// inplace 输出相关（仅单文件模式 + xlsx 源生效；CSV / 文件夹会在服务层拦截）
 	OutputTarget OutputTarget // "" 视作 OutputTargetNewFiles
 	BackupSource bool         // 为 true 且 OutputTarget=inplace 时，先生成 .bak 再写回
+
+	// 高级筛选（V1.5+）：在关键词命中后再按列条件二次过滤。
+	// nil 或 IsEmpty() = 不启用；行为完全跟旧版一致（零回归）。
+	AdvancedFilter *AdvancedFilterSpec
 }
 
 // SplitTask 单文件拆分任务。
@@ -99,6 +138,9 @@ type SplitTask struct {
 	// inplace 输出相关（仅 xlsx 源生效；by_sheet 模式不适用，服务层拦截）
 	OutputTarget OutputTarget
 	BackupSource bool
+
+	// 高级筛选（V1.5+）：仅 SplitByKeyword 模式生效；其他三模式 splitter 内部忽略。
+	AdvancedFilter *AdvancedFilterSpec
 }
 
 // Progress 任务进度快照。Done == Total 表示完成。

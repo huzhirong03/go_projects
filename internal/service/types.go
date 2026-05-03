@@ -8,6 +8,8 @@
 // 本包是 app.go 桥接的唯一下游，app.go 里每个方法都应该 ≤ 5 行。
 package service
 
+import "excel-master/internal/core"
+
 // ExtractRequest 是前端请求批量提取时提交的 DTO。
 // 字段全部使用 JSON 友好类型，匹配模式用三个独立布尔而非位掩码。
 type ExtractRequest struct {
@@ -34,6 +36,10 @@ type ExtractRequest struct {
 	// "inplace_sheets" = 写回源文件新 Sheet
 	OutputTarget string `json:"outputTarget"`
 	BackupSource bool   `json:"backupSource"` // inplace 前是否生成 .bak
+
+	// 高级筛选（V1.5+）：在关键词命中之后再按列条件二次过滤。
+	// AdvancedFilter == nil 或 Conditions 为空时等同于不启用，行为完全跟旧版一致。
+	AdvancedFilter *AdvancedFilterDTO `json:"advancedFilter,omitempty"`
 }
 
 // SplitRequest 是前端请求单文件拆分时提交的 DTO。
@@ -64,6 +70,50 @@ type SplitRequest struct {
 	// 输出目标（xlsx 源生效；by_sheet / CSV 源自动回退为 new_files）
 	OutputTarget string `json:"outputTarget"`
 	BackupSource bool   `json:"backupSource"`
+
+	// 高级筛选（V1.5+）：仅 by_keyword 模式生效；其他三种拆分模式服务端忽略。
+	AdvancedFilter *AdvancedFilterDTO `json:"advancedFilter,omitempty"`
+}
+
+// AdvancedFilterDTO 是前端 → 后端的高级筛选 DTO。
+// 字段命名严格跟前端 camelCase / 后端 internal/filter.Spec 对齐。
+type AdvancedFilterDTO struct {
+	Mode       string                 `json:"mode"`       // "all" / "any"
+	Conditions []AdvancedConditionDTO `json:"conditions"` // 条件列表
+}
+
+// AdvancedConditionDTO 单条件 DTO。
+type AdvancedConditionDTO struct {
+	Column string `json:"column"`
+	Op     string `json:"op"`
+	Value  string `json:"value"`
+	Value2 string `json:"value2,omitempty"`
+	Format string `json:"format,omitempty"`
+}
+
+// toCoreAdvancedFilter 把前端 DTO 转成 core 域 spec；nil/空 → nil（视作不启用）。
+func toCoreAdvancedFilter(dto *AdvancedFilterDTO) *core.AdvancedFilterSpec {
+	if dto == nil || len(dto.Conditions) == 0 {
+		return nil
+	}
+	conds := make([]core.AdvancedFilterCondition, 0, len(dto.Conditions))
+	for _, c := range dto.Conditions {
+		// 跳过完全空的占位条件
+		if c.Column == "" || c.Op == "" {
+			continue
+		}
+		conds = append(conds, core.AdvancedFilterCondition{
+			Column: c.Column,
+			Op:     c.Op,
+			Value:  c.Value,
+			Value2: c.Value2,
+			Format: c.Format,
+		})
+	}
+	if len(conds) == 0 {
+		return nil
+	}
+	return &core.AdvancedFilterSpec{Mode: dto.Mode, Conditions: conds}
 }
 
 // TaskHandle 是启动任务后返回给前端的句柄。
