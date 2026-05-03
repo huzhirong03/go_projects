@@ -73,7 +73,7 @@ func ExtractUnits(
 	}
 
 	// 5. 选输出策略
-	ow, imgCounterFn, err := newOutputWriter(task.Output, task.OutputDir)
+	ow, imgCounterFn, err := newOutputWriter(task.Output, task.OutputDir, task.HeaderRow, task.SheetNames)
 	if err != nil {
 		return nil, err
 	}
@@ -257,7 +257,15 @@ func readRowFormulas(r *excelio.Reader, sheet string, row, ncells int) []string 
 }
 
 // newOutputWriter 按策略构造 writer，并返回一个用于查询图片迁移数量的回调。
-func newOutputWriter(strategy core.OutputStrategy, outDir string) (OutputWriter, func() int, error) {
+//
+// headerRow / sheets 仅 per_source（原汁原味路径）需要：
+//   - headerRow 用于保留表头行；<=0 表示不强制保留。
+//   - sheets 是用户在前端选中的 Sheet 名列表；原汁原味会只保留这些 Sheet 里有命中的。
+//
+// per_keyword / merged 是"多源合并"本质，继续用流式重写的 defaultSheet="结果"。
+func newOutputWriter(
+	strategy core.OutputStrategy, outDir string, headerRow int, sheets []string,
+) (OutputWriter, func() int, error) {
 	const defaultSheet = "结果"
 	switch strategy {
 	case core.OutputPerKeyword:
@@ -267,7 +275,7 @@ func newOutputWriter(strategy core.OutputStrategy, outDir string) (OutputWriter,
 		w := newMergedWriter(outDir, defaultSheet)
 		return w, w.ImagesMigrated, nil
 	case core.OutputPerSource:
-		w := newPerSourceWriter(outDir, defaultSheet)
+		w := newPerSourceWriter(outDir, headerRow, sheets)
 		return w, w.ImagesMigrated, nil
 	default:
 		return nil, nil, core.New("INVALID_STRATEGY", "未知输出策略")
