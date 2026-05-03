@@ -33,10 +33,17 @@ func (a *App) startup(ctx context.Context) {
 // domReady 在前端 DOM 就绪、窗口已实际显示后调用。
 // 居中放在这里才稳定 —— OnStartup 时窗口还没显示，SetPosition 算的相对位置不可靠。
 // 保险做法：先显式 SetSize 再 Center，避免 Wails 在某些版本/平台拿到 size=0 算错位置。
+//
+// 防御启动异常：
+//   - WindowUnminimise 防止用户上次最小化关闭后这次启动还是最小化
+//   - WindowShow 确保窗口可见（被其他窗口遮挡 / 启动闪过任务栏的情况）
+//   - 居中前后再做一次让窗口被前置（some Win10 安装会把窗口埋到后台）
 func (a *App) domReady(ctx context.Context) {
+	runtime.WindowUnminimise(ctx)
+	runtime.WindowShow(ctx)
 	runtime.WindowSetSize(ctx, 1000, 800)
 	runtime.WindowCenter(ctx)
-	log.Printf("[STARTUP] domReady: window centered, +%v since main", time.Since(procStart))
+	log.Printf("[STARTUP] domReady: window unminimised + shown + centered, +%v since main", time.Since(procStart))
 }
 
 // PreviewFolder 前端在选完文件夹后调一次，拿第一个 xlsx 的表头 + 所有 Sheet 名。
