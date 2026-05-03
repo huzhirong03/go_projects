@@ -32,6 +32,9 @@ test_out_*/
 testdata_school_real_cases/
 testdata_*_private/
 
+# 冒烟测试 fixture 产物（约 100MB+，由 cmd/gen-smoke-fixture 生成；代码入库不入产物）
+/testdata_smoke/
+
 # Excel 打开时产生的临时锁文件（以 ~$ 开头）
 ~$*
 **/~$*
