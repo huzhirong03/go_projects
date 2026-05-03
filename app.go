@@ -32,7 +32,9 @@ func (a *App) startup(ctx context.Context) {
 
 // domReady 在前端 DOM 就绪、窗口已实际显示后调用。
 // 居中放在这里才稳定 —— OnStartup 时窗口还没显示，SetPosition 算的相对位置不可靠。
+// 保险做法：先显式 SetSize 再 Center，避免 Wails 在某些版本/平台拿到 size=0 算错位置。
 func (a *App) domReady(ctx context.Context) {
+	runtime.WindowSetSize(ctx, 1000, 800)
 	runtime.WindowCenter(ctx)
 	log.Printf("[STARTUP] domReady: window centered, +%v since main", time.Since(procStart))
 }
