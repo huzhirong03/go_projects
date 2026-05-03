@@ -28,6 +28,9 @@ func SplitByRows(ctx context.Context, task core.SplitTask, emitter core.EventEmi
 	if err := validateCommon(task); err != nil {
 		return nil, err
 	}
+	if err := requireXLSXSource(task.SourcePath); err != nil {
+		return nil, err
+	}
 	if task.RowsPerFile <= 0 {
 		return nil, core.New("INVALID_TASK", "RowsPerFile 必须 > 0")
 	}

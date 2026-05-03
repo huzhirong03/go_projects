@@ -4,8 +4,20 @@ import (
 	"strings"
 	"time"
 
+	"excel-master/internal/core"
 	"excel-master/internal/excelio"
 )
+
+// requireXLSXSource 在 by_sheet / by_rows / by_column 模式入口调用。
+// CSV 源对这些模式不适用（无 Sheet/样式保真需求），返回友好错误让前端提示用户改用
+// by_keyword 或先转 xlsx。
+func requireXLSXSource(path string) error {
+	if core.DetectSourceKind(path) == core.SourceCSV {
+		return core.New(core.CodeSourceFormatUnsupported,
+			"CSV 文件暂不支持按 Sheet/行数/列值拆分（CSV 无 Sheet 概念，也无样式需要保真）；如需按关键词拆分，请选择\"按关键词\"模式")
+	}
+	return nil
+}
 
 // sanitizeFileName 替换 Windows 文件名非法字符。
 func sanitizeFileName(name string) string {

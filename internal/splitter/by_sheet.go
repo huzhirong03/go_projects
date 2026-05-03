@@ -24,6 +24,9 @@ func SplitBySheet(ctx context.Context, task core.SplitTask, emitter core.EventEm
 	if err := validateCommon(task); err != nil {
 		return nil, err
 	}
+	if err := requireXLSXSource(task.SourcePath); err != nil {
+		return nil, err
+	}
 
 	// 打开源，读取 sheet 列表以及每个 sheet 的行数/图片数（统计用）
 	r, err := excelio.Open(task.SourcePath)

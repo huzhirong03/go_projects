@@ -31,6 +31,9 @@ func SplitByColumn(ctx context.Context, task core.SplitTask, emitter core.EventE
 	if err := validateCommon(task); err != nil {
 		return nil, err
 	}
+	if err := requireXLSXSource(task.SourcePath); err != nil {
+		return nil, err
+	}
 	if task.HeaderRow <= 0 {
 		return nil, core.New("INVALID_TASK", "按列值拆分需要指定表头行 (HeaderRow > 0)")
 	}
