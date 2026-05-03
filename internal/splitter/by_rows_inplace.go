@@ -30,7 +30,7 @@ func splitByRowsInplace(
 		_ = r.Close()
 		return nil, core.New("NO_MATCHED_SHEET", "源文件没有任何匹配指定 Sheet 名的工作表")
 	}
-	stats, err := collectSheetRowStats(r.File(), sheets)
+	stats, err := collectSheetRowStats(r, sheets)
 	_ = r.Close()
 	if err != nil {
 		return nil, err

@@ -43,13 +43,13 @@ func SplitBySheet(ctx context.Context, task core.SplitTask, emitter core.EventEm
 		return nil, core.New("NO_MATCHED_SHEET", "源文件没有任何匹配指定 Sheet 名的工作表")
 	}
 
-	// 统计每个 sheet 的行数和图片数（用于 Result 展示，不参与写入）
+	// 统计每个 sheet 的行数和图片数（用于 Result 展示，不参与写入）。
+	// 关键：行数用流式 Iterate 数，禁止 GetRows 全量加载（违反规则 §1.4，1GB+
+	// 文件直接 OOM）。GetPictureCells 是 O(图片数) 不是 O(行数)，可继续用。
 	rowsStats := make(map[string]int, len(sheets))
 	imgsStats := make(map[string]int, len(sheets))
 	for _, sheet := range sheets {
-		if rows, err := r.File().GetRows(sheet); err == nil {
-			rowsStats[sheet] = len(rows)
-		}
+		rowsStats[sheet] = countSheetRowsStream(r, sheet)
 		if cells, err := r.File().GetPictureCells(sheet); err == nil {
 			// 一个 cell 可能挂多张图，但对 Result 指标影响不大
 			imgsStats[sheet] = len(cells)

@@ -49,7 +49,7 @@ func SplitByRows(ctx context.Context, task core.SplitTask, emitter core.EventEmi
 	}
 	// 提前读出每个 Sheet 的总行数与图片行索引用于分片，再关闭 reader
 	// （后续 CloneFile 需要独占打开源文件的 lock-free 状态）
-	stats, err := collectSheetRowStats(r.File(), sheets)
+	stats, err := collectSheetRowStats(r, sheets)
 	_ = r.Close()
 	if err != nil {
 		return nil, err
@@ -81,14 +81,29 @@ type sheetRowStats struct {
 }
 
 // collectSheetRowStats 一次性扫描各 sheet 的行数和图片锚点行分布，减少后续 I/O。
-func collectSheetRowStats(f *excelize.File, sheets []string) (map[string]*sheetRowStats, error) {
+//
+// 关键：行数用流式 Iterate 数，禁止 GetRows 全量加载（违反规则 §1.4，1GB+
+// 文件直接 OOM）。GetPictureCells 是 O(图片数) 不是 O(行数)，可继续用。
+func collectSheetRowStats(r *excelio.Reader, sheets []string) (map[string]*sheetRowStats, error) {
 	out := map[string]*sheetRowStats{}
+	f := r.File()
 	for _, sh := range sheets {
-		rows, err := f.GetRows(sh)
+		// 流式数总行数，O(rows) 时间 + O(1) 内存
+		it, err := r.Iterate(sh)
 		if err != nil {
-			return nil, core.Wrap("EXCEL_READ_FAILED", "读取 sheet 行数失败: "+sh, err)
+			return nil, core.Wrap("EXCEL_READ_FAILED", "打开 sheet 行迭代器失败: "+sh, err)
 		}
-		st := &sheetRowStats{totalRows: len(rows), picsByRow: map[int]int{}}
+		total := 0
+		for it.Next() {
+			total++
+		}
+		iterErr := it.Err()
+		_ = it.Close()
+		if iterErr != nil {
+			return nil, core.Wrap("EXCEL_READ_FAILED", "读取 sheet 行数失败: "+sh, iterErr)
+		}
+
+		st := &sheetRowStats{totalRows: total, picsByRow: map[int]int{}}
 		cells, err := f.GetPictureCells(sh)
 		if err == nil {
 			for _, cell := range cells {

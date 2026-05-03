@@ -78,3 +78,19 @@ func sheetSegment(sheet string, multi bool) string {
 	}
 	return "_" + sanitizeFileName(sheet)
 }
+
+// countSheetRowsStream 用流式迭代器数 sheet 的总行数，O(rows) 时间 + O(1) 内存。
+// 替代 excelize.GetRows 的全量加载（违反规则 §1.4，1GB+ 文件直接 OOM）。
+// 失败时返回 0，调用方接受不精准的统计而不是阻断业务。
+func countSheetRowsStream(r *excelio.Reader, sheet string) int {
+	it, err := r.Iterate(sheet)
+	if err != nil {
+		return 0
+	}
+	defer it.Close()
+	n := 0
+	for it.Next() {
+		n++
+	}
+	return n
+}
