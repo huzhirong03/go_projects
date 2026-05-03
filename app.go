@@ -93,8 +93,12 @@ func (a *App) ChooseFile(title string) (string, error) {
 // OpenPath 调用 Windows 文件协议处理器，用系统默认程序打开 path（文件或文件夹）。
 // 例如：xlsx → Excel/WPS；目录 → 资源管理器。等价于双击。
 // 之前的 BrowserOpenURL 不行：它只能在浏览器里打开 file:// URL，浏览器不会用 Excel 打开 xlsx。
+//
+// 用 hiddenCmdAttr 隐藏子进程的控制台窗口，避免学员看到一闪而过的黑框。
 func (a *App) OpenPath(path string) error {
-	return exec.Command("rundll32", "url.dll,FileProtocolHandler", path).Start()
+	cmd := exec.Command("rundll32", "url.dll,FileProtocolHandler", path)
+	cmd.SysProcAttr = hiddenCmdAttr()
+	return cmd.Start()
 }
 
 // LoadConfig 读取持久化的前端配置（JSON 字符串）。
@@ -114,12 +118,15 @@ func (a *App) LogStartup(msg string) {
 
 // OpenLogFolder 用系统资源管理器打开日志目录。前端"打开日志文件夹"按钮用。
 // 失败返回错误，前端可弹 toast。
+// 用 hiddenCmdAttr 隐藏控制台窗口，避免学员看到黑框。
 func (a *App) OpenLogFolder() error {
 	dir, err := a.svc.LogsDirPath()
 	if err != nil {
 		return err
 	}
-	return exec.Command("rundll32", "url.dll,FileProtocolHandler", dir).Start()
+	cmd := exec.Command("rundll32", "url.dll,FileProtocolHandler", dir)
+	cmd.SysProcAttr = hiddenCmdAttr()
+	return cmd.Start()
 }
 
 // LogsDirPath 返回日志目录路径字符串，给前端 toast 显示用（不弹窗，纯展示）。
