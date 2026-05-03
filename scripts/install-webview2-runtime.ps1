@@ -62,23 +62,39 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # 4. cab 内层结构：Microsoft.WebView2.FixedVersionRuntime.X.Y.Z.x64\msedgewebview2.exe
-#    把内层文件夹整个挪到 webview2_runtime/，扁平化路径
+#    用 Copy + Remove 比 Move-Item 更稳：
+#    - Windows Defender 实时扫描新文件时会短暂锁定，Move-Item 会报 "访问被拒绝"
+#    - Copy 不依赖源文件独占锁，成功后再清临时目录
+Write-Host "移动解压内容到 webview2_runtime/（可能需要十几秒）..."
 $inner = Get-ChildItem -LiteralPath $tmpDir -Directory `
     | Where-Object { $_.Name -like 'Microsoft.WebView2.FixedVersionRuntime.*' } `
     | Select-Object -First 1
+
+function CopyWithRetry($src, $dst) {
+    # robocopy: /E 递归含空目录, /NFL/NDL/NJH/NJS 静音, /R:3 /W:1 自动重试 3 次间隔 1 秒
+    # robocopy 的 exit code 0-7 都算成功，>=8 才是真失败
+    $null = & robocopy $src $dst /E /NFL /NDL /NJH /NJS /R:3 /W:1
+    if ($LASTEXITCODE -ge 8) {
+        throw "robocopy failed with exit code $LASTEXITCODE"
+    }
+    # PowerShell 的 $LASTEXITCODE 残留会污染后续检查，清零
+    $global:LASTEXITCODE = 0
+}
+
 if (-not $inner) {
     # cab 解压后可能直接就是文件而非子文件夹，检查 msedgewebview2.exe 是否在 tmpDir 根下
     if (Test-Path (Join-Path $tmpDir 'msedgewebview2.exe')) {
-        Move-Item -LiteralPath $tmpDir -Destination $targetDir
+        CopyWithRetry $tmpDir $targetDir
     } else {
         Remove-Item -LiteralPath $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
         Write-Error "cab 解压后没找到 Microsoft.WebView2.FixedVersionRuntime.*.x64 文件夹，也没找到 msedgewebview2.exe，包格式异常"
         exit 1
     }
 } else {
-    Move-Item -LiteralPath $inner.FullName -Destination $targetDir
-    Remove-Item -LiteralPath $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
+    CopyWithRetry $inner.FullName $targetDir
 }
+# 清理临时目录（如果某些文件仍被 Defender 锁，允许失败——后续跑一次就清干净）
+Remove-Item -LiteralPath $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # 5. 验证
 $wv2Exe = Join-Path $targetDir 'msedgewebview2.exe'
