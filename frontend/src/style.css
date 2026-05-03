@@ -1,74 +1,220 @@
-/* 全局样式。组件级样式用 <style scoped>。 */
+/*
+ * 全局样式 - Fluent + Excel 风格
+ *
+ * 设计原则：
+ * - 浅色 Fluent 基调（neutralLight），辅以 Excel 绿主色
+ * - 字体：Segoe UI Variable（Windows 11 Fluent 默认）+ 等宽 Cascadia Code 处理路径/数字
+ * - 数据/数字 tabular-nums，避免抖动
+ * - 卡片/输入用 1px subtle border + 极轻微阴影，不堆 box-shadow
+ * - 按钮 hover/active 走 background + 微 transform 反馈，符合 Fluent reveal 简化版
+ * - z-index 维护清晰 scale，不出现 9999
+ */
+
+:root {
+    /* Surfaces ---------------------------------------------------- */
+    --bg:               #f5f5f5;        /* 主背景，Fluent neutralLighter */
+    --surface:          #ffffff;        /* 卡片/容器 */
+    --surface-2:        #fafafa;        /* 嵌套面板（如日志、column-chips 容器） */
+    --surface-hover:    #f0f0f0;
+    --surface-pressed:  #e8e8e8;
+    --surface-inverse:  #201f1e;        /* 反色面板（极少用） */
+
+    /* Borders ----------------------------------------------------- */
+    --border:           #e1dfdd;        /* Fluent neutralQuaternaryAlt */
+    --border-strong:    #c8c6c4;
+    --border-focus:     var(--accent);
+    --divider:          #edebe9;
+
+    /* Text -------------------------------------------------------- */
+    --text:             #201f1e;        /* 不用纯黑，Fluent neutralPrimary */
+    --text-secondary:   #605e5c;
+    --text-tertiary:    #8a8886;
+    --text-disabled:    #a19f9d;
+    --text-on-accent:   #ffffff;
+
+    /* Accent — Excel 品牌绿 --------------------------------------- */
+    --accent:           #107c41;
+    --accent-hover:     #0e6e3a;
+    --accent-pressed:   #0c5d31;
+    --accent-soft:      #dff6e6;        /* 浅色填底 */
+    --accent-soft-fg:   #0c5d31;        /* 浅底上的字色 */
+
+    /* Status ------------------------------------------------------ */
+    --success:          #107c41;
+    --success-soft:     #dff6e6;
+    --info:             #0078d4;
+    --info-soft:        #deecf9;
+    --warn:             #b88600;
+    --warn-soft:        #fff4ce;
+    --danger:           #c50f1f;        /* Fluent dangerPrimary */
+    --danger-soft:      #fde7e9;
+
+    /* Shadows / Effects ------------------------------------------ */
+    --shadow-card:      0 1px 2px rgba(0,0,0,0.04), 0 0 1px rgba(0,0,0,0.06);
+    --shadow-elev:      0 4px 8px rgba(0,0,0,0.08), 0 0 1px rgba(0,0,0,0.10);
+    --shadow-flyout:    0 8px 16px rgba(0,0,0,0.14), 0 0 1px rgba(0,0,0,0.12);
+
+    /* Radii ------------------------------------------------------- */
+    --r-xs:             2px;
+    --r-sm:             4px;
+    --r-md:             6px;
+    --r-lg:             8px;
+
+    /* Typography -------------------------------------------------- */
+    --font: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont,
+            "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC",
+            "Helvetica Neue", Arial, sans-serif;
+    --font-display: "Segoe UI Variable Display", "Segoe UI Variable Text",
+            "Segoe UI", "Microsoft YaHei UI", sans-serif;
+    --font-mono: "Cascadia Code", "JetBrains Mono", "Consolas", "Source Code Pro",
+            ui-monospace, "Menlo", monospace;
+
+    /* Z-index scale ---------------------------------------------- */
+    --z-dropdown:       100;
+    --z-sticky:         200;
+    --z-modal:          1000;
+    --z-toast:          1100;
+
+    /* Motion ------------------------------------------------------ */
+    --t-fast:           120ms;
+    --t-base:           180ms;
+    --ease:             cubic-bezier(0.33, 0, 0.67, 1);   /* Fluent standard */
+}
+
 * { box-sizing: border-box; }
 
 html, body {
     margin: 0;
     padding: 0;
     height: 100%;
-    background-color: #0f172a;
-    color: #e2e8f0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei",
-        "PingFang SC", "Roboto", "Helvetica Neue", sans-serif;
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
     font-size: 14px;
-    line-height: 1.5;
+    line-height: 1.43;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
 }
 
 #app { min-height: 100vh; }
 
-/* 通用按钮 */
+/* 数字一律 tabular（路径里的行号/百分比/计数器都受益） */
+input[type="number"], .num, .mono { font-variant-numeric: tabular-nums; }
+
+/* ----- 通用按钮（Fluent 风格） --------------------------------- */
 .btn {
-    padding: 8px 16px;
-    border-radius: 6px;
-    border: none;
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background 0.15s ease, transform 0.05s ease;
-}
-.btn:active:not(:disabled) { transform: translateY(1px); }
-.btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-.btn-primary { background: #2563eb; color: #fff; }
-.btn-primary:hover:not(:disabled) { background: #1d4ed8; }
-
-.btn-secondary { background: #334155; color: #e2e8f0; }
-.btn-secondary:hover:not(:disabled) { background: #475569; }
-
-.btn-danger { background: #dc2626; color: #fff; }
-.btn-danger:hover:not(:disabled) { background: #b91c1c; }
-
-.btn-link {
-    background: transparent;
-    color: #60a5fa;
-    padding: 2px 8px;
-    text-decoration: underline;
-    font-size: 12px;
-}
-.btn-link:hover { color: #93c5fd; }
-
-/* 通用输入 */
-input[type="text"],
-input[type="number"],
-textarea {
-    background: #0f172a;
-    border: 1px solid #334155;
-    border-radius: 6px;
-    padding: 7px 10px;
-    color: #e2e8f0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 14px;
+    border-radius: var(--r-sm);
+    border: 1px solid transparent;
     font-family: inherit;
     font-size: 14px;
-    outline: none;
-    transition: border-color 0.15s ease;
+    font-weight: 600;
+    cursor: pointer;
+    user-select: none;
+    transition: background var(--t-fast) var(--ease),
+                border-color var(--t-fast) var(--ease),
+                color var(--t-fast) var(--ease),
+                transform 60ms var(--ease);
 }
+.btn:active:not(:disabled) { transform: translateY(0.5px) scale(0.99); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.btn-primary {
+    background: var(--accent);
+    color: var(--text-on-accent);
+}
+.btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+.btn-primary:active:not(:disabled) { background: var(--accent-pressed); }
+
+.btn-secondary {
+    background: var(--surface);
+    color: var(--text);
+    border-color: var(--border-strong);
+}
+.btn-secondary:hover:not(:disabled) {
+    background: var(--surface-hover);
+    border-color: var(--border-strong);
+}
+.btn-secondary:active:not(:disabled) { background: var(--surface-pressed); }
+
+.btn-danger {
+    background: var(--danger);
+    color: var(--text-on-accent);
+}
+.btn-danger:hover:not(:disabled) { background: #a40d1a; }
+.btn-danger:active:not(:disabled) { background: #890b16; }
+
+.btn-link {
+    height: auto;
+    padding: 2px 4px;
+    background: transparent;
+    color: var(--info);
+    font-weight: 600;
+    font-size: 12px;
+    border: none;
+    text-decoration: none;
+}
+.btn-link:hover { background: var(--info-soft); }
+.btn-link:active { background: var(--info-soft); transform: none; }
+
+/* ----- 通用输入 ------------------------------------------------ */
+input[type="text"],
+input[type="number"],
+textarea,
+select {
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-sm);
+    padding: 6px 10px;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 14px;
+    line-height: 1.43;
+    outline: none;
+    transition: border-color var(--t-fast) var(--ease),
+                box-shadow var(--t-fast) var(--ease);
+}
+input[type="text"]:hover,
+input[type="number"]:hover,
+textarea:hover { border-color: var(--text-secondary); }
+
+/* Fluent 风格 focus：双层"底部 accent line"通过 box-shadow 实现 */
 input[type="text"]:focus,
 input[type="number"]:focus,
-textarea:focus { border-color: #2563eb; }
-textarea { resize: vertical; font-family: inherit; }
+textarea:focus,
+select:focus {
+    border-color: var(--accent);
+    box-shadow: inset 0 -1px 0 0 var(--accent);
+}
 
-input[type="checkbox"], input[type="radio"] { accent-color: #2563eb; cursor: pointer; }
+textarea { resize: vertical; min-height: 56px; }
 
-/* 滚动条（Webkit） */
-::-webkit-scrollbar { width: 8px; height: 8px; }
+input[type="checkbox"], input[type="radio"] {
+    accent-color: var(--accent);
+    cursor: pointer;
+    width: 14px;
+    height: 14px;
+}
+
+/* ----- 滚动条（Fluent 浅色） ----------------------------------- */
+::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: #475569; }
+::-webkit-scrollbar-thumb {
+    background: rgba(0,0,0,0.18);
+    border-radius: 6px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background-color: rgba(0,0,0,0.30); background-clip: padding-box; }
+
+/* 选区色 */
+::selection { background: var(--accent-soft); color: var(--text); }
+
+/* utility */
+.mono { font-family: var(--font-mono); }

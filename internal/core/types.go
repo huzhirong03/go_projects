@@ -49,6 +49,7 @@ type ExtractTask struct {
 	HeaderRow      int            // 表头所在行号，1-based；0 表示无表头
 	PreserveImages bool           // 是否保留图片
 	SheetNames     []string       // 指定的 Sheet 名（空 = 全部）
+	FilenamePrefix string         // 输出文件名前缀，空字符串 = 默认；常用 "搜索_"
 }
 
 // SplitTask 单文件拆分任务。

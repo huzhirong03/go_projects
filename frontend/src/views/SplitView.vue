@@ -259,55 +259,91 @@ async function submit() {
 </template>
 
 <style scoped>
-.view { display: flex; flex-direction: column; gap: 16px; }
-.view-header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
-.view-title { margin: 0; font-size: 20px; color: #f1f5f9; }
-.view-desc { color: #94a3b8; font-size: 13px; }
+.view { display: flex; flex-direction: column; gap: 10px; }
+.view-header {
+    display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+}
+.view-title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: -0.015em;
+}
+.view-desc { color: var(--text-secondary); font-size: 13px; }
+
 .label-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .row-2col {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 14px;
+    gap: 12px;
     align-items: start;
 }
+
 .strip {
-    background: #1f2738;
-    border: 1px solid #2d3748;
-    border-radius: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
     padding: 10px 14px;
     display: flex;
     align-items: center;
-    gap: 14px;
+    gap: 16px;
     flex-wrap: wrap;
-    color: #cbd5e1;
+    color: var(--text);
+    box-shadow: var(--shadow-card);
 }
-.strip-title { font-size: 14px; font-weight: 600; color: #e2e8f0; }
-.keep-images { margin-left: auto; color: #cbd5e1; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.strip-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.keep-images {
+    margin-left: auto;
+    color: var(--text-secondary);
+    display: inline-flex; align-items: center; gap: 6px;
+    cursor: pointer; font-size: 13px;
+}
+
 .card {
-    background: #1f2738;
-    border: 1px solid #2d3748;
-    border-radius: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
     padding: 16px;
     display: flex;
     flex-direction: column;
     gap: 14px;
+    box-shadow: var(--shadow-card);
 }
+
 .field { display: flex; flex-direction: column; gap: 6px; }
-.field-label { font-size: 13px; color: #a9b4c6; font-weight: 500; }
-.field-hint { font-size: 12px; color: #64748b; margin-left: 6px; }
-.inline-group { display: flex; gap: 18px; flex-wrap: wrap; color: #cbd5e1; }
-.inline-group label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
-.radio-group { gap: 10px; }
-.actions { display: flex; justify-content: flex-end; }
+.field-label {
+    font-size: 13px;
+    color: var(--text);
+    font-weight: 600;
+}
+.field-hint { font-size: 12px; color: var(--text-tertiary); margin-left: 6px; }
+.inline-group {
+    display: flex; gap: 16px; flex-wrap: wrap;
+    color: var(--text);
+}
+.inline-group label {
+    display: inline-flex; align-items: center; gap: 6px;
+    cursor: pointer; font-size: 13px;
+}
+.radio-group { gap: 12px; }
+.actions { display: flex; justify-content: flex-end; padding-top: 4px; }
 
 .kw-block {
-    background: #0f172a;
-    border-radius: 6px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
     padding: 12px;
     display: flex;
     flex-direction: column;
     gap: 10px;
-    border: 1px solid #1e293b;
 }
 .column-chips {
     display: flex;
@@ -316,14 +352,25 @@ async function submit() {
     margin-top: 4px;
 }
 .chip {
-    background: #334155;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
     padding: 3px 10px;
-    border-radius: 14px;
+    border-radius: 12px;
     font-size: 12px;
-    color: #e2e8f0;
+    color: var(--text-secondary);
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
     cursor: pointer;
+    transition: background var(--t-fast) var(--ease),
+                border-color var(--t-fast) var(--ease),
+                color var(--t-fast) var(--ease);
+}
+.chip:hover { background: var(--surface-hover); color: var(--text); }
+.chip:has(input:checked) {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--accent-soft-fg);
+    font-weight: 600;
 }
 </style>

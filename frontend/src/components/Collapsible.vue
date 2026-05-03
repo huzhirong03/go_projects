@@ -33,40 +33,47 @@ function onToggle(e) {
 
 <style scoped>
 .collapsible {
-    background: #1f2738;
-    border: 1px solid #2d3748;
-    border-radius: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
     overflow: hidden;
+    box-shadow: var(--shadow-card);
 }
 .collapsible-head {
     list-style: none;
     cursor: pointer;
-    padding: 10px 14px;
-    color: #e2e8f0;
+    padding: 8px 12px;
+    color: var(--text);
     font-size: 14px;
     font-weight: 600;
     display: flex;
     align-items: center;
     gap: 8px;
     user-select: none;
-    background: #1f2738;
+    background: var(--surface);
+    transition: background var(--t-fast) var(--ease);
 }
 .collapsible-head::-webkit-details-marker { display: none; }
-.collapsible-head:hover { background: #283045; }
+.collapsible-head:hover { background: var(--surface-hover); }
+.collapsible-head:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+}
 .chevron {
     display: inline-block;
-    transition: transform 0.15s ease;
-    color: #94a3b8;
-    font-size: 10px;
+    transition: transform var(--t-base) var(--ease);
+    color: var(--text-tertiary);
+    font-size: 9px;
     width: 12px;
 }
 .collapsible[open] .chevron { transform: rotate(90deg); }
 .collapsible-body {
-    padding: 12px 14px 14px;
-    border-top: 1px solid #2d3748;
+    padding: 10px 12px 12px;
+    border-top: 1px solid var(--divider);
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 10px;
+    background: var(--surface);
 }
-.title { flex: 1; }
+.title { flex: 1; letter-spacing: -0.005em; }
 </style>

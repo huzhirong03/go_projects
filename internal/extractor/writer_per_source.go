@@ -22,11 +22,12 @@ import (
 //   - 为了不破坏原样，不追加"命中关键词"列；如果用户需要这信息，
 //     换用 per_keyword / merged 策略即可。
 //
-// 文件命名：<源文件名去扩展名>_已提取_<时间戳>.xlsx。
+// 文件命名：<prefix><源文件名去扩展名>_已提取_<时间戳>.xlsx。默认 prefix 为空。
 type perSourceWriter struct {
 	outDir    string
-	headerRow int                       // 1-based；<=0 表示无表头（不强制保留第一行）
-	sheets    []string                  // 用户选中的 Sheet 列表；空=保留所有（但下面会进一步按"是否有命中"过滤）
+	headerRow int      // 1-based；<=0 表示无表头（不强制保留第一行）
+	sheets    []string // 用户选中的 Sheet 列表；空=保留所有（但下面会进一步按"是否有命中"过滤）
+	prefix    string
 	hits      map[string]*perSourceHits // key = 源文件绝对路径
 	imgCount  int
 	ts        string
@@ -39,13 +40,14 @@ type perSourceHits struct {
 	picCount  int              // 命中行包含的图片数（不触发迁移，仅用于统计）
 }
 
-func newPerSourceWriter(outDir string, headerRow int, sheets []string) *perSourceWriter {
+func newPerSourceWriter(outDir string, headerRow int, sheets []string, prefix string) *perSourceWriter {
 	// 复制一份 sheets 避免调用方后续修改
 	sheetsCopy := append([]string(nil), sheets...)
 	return &perSourceWriter{
 		outDir:    outDir,
 		headerRow: headerRow,
 		sheets:    sheetsCopy,
+		prefix:    prefix,
 		hits:      map[string]*perSourceHits{},
 		ts:        timestamp(),
 	}
@@ -129,7 +131,7 @@ func (p *perSourceWriter) exportOne(h *perSourceHits) (string, error) {
 	// 目标路径
 	base := filepath.Base(h.path)
 	stem := strings.TrimSuffix(base, filepath.Ext(base))
-	fname := sanitizeFileName(stem) + "_已提取_" + p.ts + ".xlsx"
+	fname := sanitizeFileName(p.prefix+stem) + "_已提取_" + p.ts + ".xlsx"
 	outPath := filepath.Join(p.outDir, fname)
 
 	// 构造 keepSheetRows: 每个命中 sheet 保留 表头行 + 命中行，去重后传入

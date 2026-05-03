@@ -7,20 +7,23 @@ import (
 )
 
 // perKeywordWriter：每个关键词一个输出文件。
-// 文件命名：<关键词>_<时间戳>.xlsx。关键词含非法字符自动替换。
+// 文件命名：<prefix><关键词>_<时间戳>.xlsx。prefix 默认为空，可传如 "搜索_"
+// 变成 "搜索_<关键词>_<时间戳>.xlsx"。关键词含非法字符自动替换。
 type perKeywordWriter struct {
 	outDir   string
 	sheet    string
+	prefix   string
 	schema   *UnifiedSchema
 	streams  map[string]*outputStream // key = 关键词原文
 	imgCount int
 	ts       string
 }
 
-func newPerKeywordWriter(outDir, sheet string) *perKeywordWriter {
+func newPerKeywordWriter(outDir, sheet, prefix string) *perKeywordWriter {
 	return &perKeywordWriter{
 		outDir:  outDir,
 		sheet:   sheet,
+		prefix:  prefix,
 		streams: map[string]*outputStream{},
 		ts:      timestamp(),
 	}
@@ -35,7 +38,7 @@ func (p *perKeywordWriter) getOrCreate(kw string) (*outputStream, error) {
 	if s, ok := p.streams[kw]; ok {
 		return s, nil
 	}
-	fname := sanitizeFileName(kw) + "_" + p.ts + ".xlsx"
+	fname := sanitizeFileName(p.prefix+kw) + "_" + p.ts + ".xlsx"
 	outPath := filepath.Join(p.outDir, fname)
 	s, err := openOutput(outPath, p.sheet)
 	if err != nil {

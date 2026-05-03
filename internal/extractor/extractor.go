@@ -74,7 +74,7 @@ func ExtractUnits(
 	}
 
 	// 5. 选输出策略
-	ow, imgCounterFn, err := newOutputWriter(task.Output, task.OutputDir, task.HeaderRow, task.SheetNames)
+	ow, imgCounterFn, err := newOutputWriter(task.Output, task.OutputDir, task.HeaderRow, task.SheetNames, task.FilenamePrefix)
 	if err != nil {
 		return nil, err
 	}
@@ -384,18 +384,18 @@ func readRowFormulas(r *excelio.Reader, sheet string, row, ncells int) []string 
 //
 // per_keyword / merged 是"多源合并"本质，继续用流式重写的 defaultSheet="结果"。
 func newOutputWriter(
-	strategy core.OutputStrategy, outDir string, headerRow int, sheets []string,
+	strategy core.OutputStrategy, outDir string, headerRow int, sheets []string, filenamePrefix string,
 ) (OutputWriter, func() int, error) {
 	const defaultSheet = "结果"
 	switch strategy {
 	case core.OutputPerKeyword:
-		w := newPerKeywordWriter(outDir, defaultSheet)
+		w := newPerKeywordWriter(outDir, defaultSheet, filenamePrefix)
 		return w, w.ImagesMigrated, nil
 	case core.OutputMerged:
-		w := newMergedWriter(outDir, defaultSheet)
+		w := newMergedWriter(outDir, defaultSheet, filenamePrefix)
 		return w, w.ImagesMigrated, nil
 	case core.OutputPerSource:
-		w := newPerSourceWriter(outDir, headerRow, sheets)
+		w := newPerSourceWriter(outDir, headerRow, sheets, filenamePrefix)
 		return w, w.ImagesMigrated, nil
 	default:
 		return nil, nil, core.New("INVALID_STRATEGY", "未知输出策略")

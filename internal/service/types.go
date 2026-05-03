@@ -22,7 +22,8 @@ type ExtractRequest struct {
 	OutputDir      string   `json:"outputDir"`
 	HeaderRow      int      `json:"headerRow"`
 	PreserveImages bool     `json:"preserveImages"`
-	SheetNames     []string `json:"sheetNames"` // V1.1 空 = 所有 Sheet 都参与
+	SheetNames     []string `json:"sheetNames"`     // V1.1 空 = 所有 Sheet 都参与
+	FilenamePrefix string   `json:"filenamePrefix"` // 输出文件名前缀；空串 = 默认；例 "搜索_"
 }
 
 // SplitRequest 是前端请求单文件拆分时提交的 DTO。

@@ -13,6 +13,7 @@ export namespace service {
 	    headerRow: number;
 	    preserveImages: boolean;
 	    sheetNames: string[];
+	    filenamePrefix: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ExtractRequest(source);
@@ -32,6 +33,7 @@ export namespace service {
 	        this.headerRow = source["headerRow"];
 	        this.preserveImages = source["preserveImages"];
 	        this.sheetNames = source["sheetNames"];
+	        this.filenamePrefix = source["filenamePrefix"];
 	    }
 	}
 	export class FilePreview {

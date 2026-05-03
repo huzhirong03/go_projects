@@ -83,13 +83,13 @@ function isChecked(name) {
 .sheet-selector { display: flex; flex-direction: column; gap: 8px; }
 
 .single {
-    background: #0f172a;
+    background: var(--surface-2);
     padding: 8px 12px;
-    border-radius: 6px;
-    border: 1px dashed #334155;
+    border-radius: var(--r-sm);
+    border: 1px dashed var(--border-strong);
 }
-.single-text { font-size: 13px; color: #94a3b8; }
-.single-text b { color: #cbd5e1; }
+.single-text { font-size: 13px; color: var(--text-secondary); }
+.single-text b { color: var(--text); font-weight: 600; }
 
 .multi .header {
     display: flex;
@@ -98,28 +98,37 @@ function isChecked(name) {
     flex-wrap: wrap;
     gap: 8px;
 }
-.field-label { font-size: 13px; color: #a9b4c6; font-weight: 500; }
+.field-label { font-size: 13px; color: var(--text); font-weight: 600; }
 .label-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .actions { display: flex; gap: 6px; align-items: center; }
 .btn-mini {
-    background: #334155;
-    color: #e2e8f0;
-    border: none;
-    border-radius: 4px;
-    padding: 3px 10px;
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-sm);
+    padding: 2px 10px;
     font-size: 12px;
+    font-weight: 500;
     cursor: pointer;
+    transition: background var(--t-fast) var(--ease);
 }
-.btn-mini:hover { background: #475569; }
-.counter { font-size: 12px; color: #64748b; padding-left: 6px; }
+.btn-mini:hover { background: var(--surface-hover); }
+.btn-mini:active { background: var(--surface-pressed); }
+.counter {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    padding-left: 6px;
+    font-variant-numeric: tabular-nums;
+}
 
 .sheet-chips {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-    background: #0f172a;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
     padding: 10px;
-    border-radius: 6px;
+    border-radius: var(--r-sm);
     max-height: 140px;
     overflow-y: auto;
 }
@@ -127,22 +136,25 @@ function isChecked(name) {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 4px 10px;
-    background: #1e293b;
-    border-radius: 14px;
+    padding: 3px 10px;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: 12px;
     font-size: 12px;
-    color: #94a3b8;
+    color: var(--text-secondary);
     cursor: pointer;
-    border: 1px solid transparent;
-    transition: all 0.15s ease;
+    transition: background var(--t-fast) var(--ease),
+                border-color var(--t-fast) var(--ease),
+                color var(--t-fast) var(--ease);
 }
-.chip:hover { background: #334155; color: #e2e8f0; }
+.chip:hover { background: var(--surface-hover); color: var(--text); }
 .chip.active {
-    background: #1e3a8a;
-    color: #e2e8f0;
-    border-color: #3b82f6;
+    background: var(--accent-soft);
+    color: var(--accent-soft-fg);
+    border-color: var(--accent);
+    font-weight: 600;
 }
 .chip-name { white-space: nowrap; }
 
-.hint { font-size: 12px; color: #64748b; }
+.hint { font-size: 12px; color: var(--text-tertiary); }
 </style>

@@ -22,15 +22,17 @@ import (
 // 多 sheet 命中时只取每个源“命中行最多的那个 sheet”作代表。
 type mergedWriter struct {
 	outDir   string
+	prefix   string                    // 文件名前缀，默认为空串
 	hits     map[string]*perSourceHits // key = 源文件路径，复用 per_source 的累积结构
 	imgCount int
 	ts       string
 }
 
-func newMergedWriter(outDir, sheet string) *mergedWriter {
+func newMergedWriter(outDir, sheet, prefix string) *mergedWriter {
 	_ = sheet // 不再需要预设“结果”底 sheet，名字从 primary 源文件继承
 	return &mergedWriter{
 		outDir: outDir,
+		prefix: prefix,
 		hits:   map[string]*perSourceHits{},
 		ts:     timestamp(),
 	}
@@ -97,8 +99,8 @@ func (m *mergedWriter) finalize(ctx context.Context, emitter core.EventEmitter) 
 	})
 	primary := plans[0]
 
-	// 输出文件名：沿用 “搜索结果_<时间戳>.xlsx”
-	outPath := filepath.Join(m.outDir, "搜索结果_"+m.ts+".xlsx")
+	// 输出文件名：<prefix>搜索结果_<时间戳>.xlsx（prefix 默认空）
+	outPath := filepath.Join(m.outDir, sanitizeFileName(m.prefix+"搜索结果")+"_"+m.ts+".xlsx")
 
 	// 构造 primary 的 keepRows：表头行 + 命中行（去重、排序由下层处理）
 	// 表头行从 task.HeaderRow 传进来，这里没有，默认 1（与原实现一致）。

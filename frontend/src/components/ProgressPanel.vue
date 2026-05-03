@@ -165,51 +165,71 @@ async function replyFileBlocked(action) {
 
 <style scoped>
 .progress-panel {
-    background: #1f2738;
-    border: 1px solid #2d3748;
-    border-radius: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
     padding: 16px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 12px;
+    box-shadow: var(--shadow-card);
 }
 .progress-header { display: flex; align-items: center; gap: 10px; }
+
+/* 状态徽章：Fluent 软色底 + 强色边，不是实色十里外 */
 .status-badge {
-    font-size: 12px;
-    padding: 2px 10px;
-    border-radius: 12px;
-    background: #334155;
-    color: #cbd5e1;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: var(--r-sm);
+    background: var(--surface-hover);
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border: 1px solid var(--border);
 }
-.status-badge.running { background: #2563eb; color: white; }
-.status-badge.done { background: #16a34a; color: white; }
-.status-badge.error { background: #dc2626; color: white; }
-.progress-stage { font-size: 13px; color: #94a3b8; }
-.progress-pct { margin-left: auto; font-weight: 600; color: #e2e8f0; }
+.status-badge.running {
+    background: var(--info-soft); color: var(--info); border-color: var(--info);
+}
+.status-badge.done {
+    background: var(--success-soft); color: var(--success); border-color: var(--success);
+}
+.status-badge.error {
+    background: var(--danger-soft); color: var(--danger); border-color: var(--danger);
+}
+.progress-stage { font-size: 13px; color: var(--text-secondary); font-weight: 500; }
+.progress-pct {
+    margin-left: auto;
+    font-weight: 600;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+}
 .progress-elapsed {
     font-size: 12px;
-    color: #cbd5e1;
-    background: #0f172a;
+    color: var(--text-secondary);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
     padding: 2px 8px;
     border-radius: 10px;
     white-space: nowrap;
+    font-variant-numeric: tabular-nums;
 }
 .progress-bar {
     width: 100%;
-    height: 8px;
-    background: #0f172a;
-    border-radius: 4px;
+    height: 4px;
+    background: var(--surface-hover);
+    border-radius: 2px;
     overflow: hidden;
 }
 .progress-fill {
     height: 100%;
-    background: linear-gradient(90deg, #3b82f6, #06b6d4);
-    transition: width 0.2s ease;
+    background: var(--accent);
+    transition: width 0.2s var(--ease);
 }
 .progress-msg {
     font-size: 12px;
-    color: #94a3b8;
-    font-family: monospace;
+    color: var(--text-tertiary);
+    font-family: var(--font-mono);
     flex: 1;
     min-width: 0;
     overflow: hidden;
@@ -218,70 +238,95 @@ async function replyFileBlocked(action) {
 }
 
 .log-window {
-    max-height: 200px;
+    max-height: 220px;
     overflow-y: auto;
-    background: #0f172a;
-    border-radius: 6px;
-    padding: 8px;
-    font-family: Consolas, monospace;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 8px 10px;
+    font-family: var(--font-mono);
     font-size: 12px;
+    line-height: 1.55;
 }
-.log-line { padding: 2px 4px; word-break: break-all; }
-.log-line.lv-warn { color: #fbbf24; }
-.log-line.lv-error { color: #f87171; }
-.log-line.lv-info { color: #cbd5e1; }
+.log-line { padding: 1px 0; word-break: break-all; color: var(--text); }
+.log-line.lv-warn { color: var(--warn); }
+.log-line.lv-error { color: var(--danger); }
+.log-line.lv-info { color: var(--text-secondary); }
 
 .result {
-    border-radius: 6px;
+    border-radius: var(--r-sm);
     padding: 10px 12px;
     display: flex;
     flex-direction: column;
     gap: 4px;
 }
-.success-box { background: #052e1a; border: 1px solid #16a34a; }
-.error-box { background: #450a0a; border: 1px solid #dc2626; }
-.result-title { font-weight: 600; color: #e2e8f0; }
-.result-row { font-size: 13px; color: #cbd5e1; }
+.success-box {
+    background: var(--success-soft);
+    border: 1px solid var(--success);
+}
+.error-box {
+    background: var(--danger-soft);
+    border: 1px solid var(--danger);
+}
+.result-title { font-weight: 600; color: var(--text); }
+.result-row { font-size: 13px; color: var(--text); }
+.result-row b { font-weight: 600; color: var(--text-secondary); }
 .output-list { margin-top: 4px; display: flex; flex-direction: column; gap: 2px; }
 .output-item { display: flex; gap: 8px; align-items: center; }
-.output-path { flex: 1; font-family: monospace; font-size: 12px; color: #93c5fd; word-break: break-all; }
+.output-path {
+    flex: 1;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--info);
+    word-break: break-all;
+}
 .progress-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
 .modal-mask {
     position: fixed;
     inset: 0;
-    z-index: 50;
-    background: rgba(15, 23, 42, 0.72);
+    z-index: var(--z-modal);
+    background: rgba(0, 0, 0, 0.32);
     display: flex;
     align-items: center;
     justify-content: center;
     padding: 20px;
+    backdrop-filter: blur(2px);
 }
 .file-blocked-dialog {
     width: min(560px, 100%);
-    background: #1f2738;
-    border: 1px solid #f59e0b;
-    border-radius: 10px;
-    padding: 18px;
-    box-shadow: 0 20px 60px rgba(0,0,0,.35);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-top: 3px solid var(--warn);
+    border-radius: var(--r-lg);
+    padding: 20px;
+    box-shadow: var(--shadow-flyout);
     display: flex;
     flex-direction: column;
     gap: 12px;
 }
-.dialog-title { font-size: 16px; font-weight: 700; color: #fde68a; }
-.dialog-text { color: #e2e8f0; font-size: 13px; line-height: 1.6; }
+.dialog-title {
+    font-family: var(--font-display);
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: -0.01em;
+}
+.dialog-text { color: var(--text); font-size: 13px; line-height: 1.55; }
 .blocked-path {
-    background: #0f172a;
-    border-radius: 6px;
-    padding: 8px;
-    color: #93c5fd;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 8px 10px;
+    color: var(--text);
     font-size: 12px;
-    font-family: Consolas, monospace;
+    font-family: var(--font-mono);
     word-break: break-all;
 }
 .dialog-detail {
     max-height: 120px;
     overflow: auto;
-    color: #94a3b8;
+    color: var(--text-tertiary);
     font-size: 12px;
     white-space: pre-wrap;
 }

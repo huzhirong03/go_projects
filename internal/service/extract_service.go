@@ -12,15 +12,34 @@ import (
 	"excel-master/internal/matcher"
 )
 
-// PreviewFolder 扫描文件夹：返回第一个 xlsx 的表头 + 文件夹下所有 Sheet 名并集。
+// PreviewFolder 扫描"源数据"：可以是文件夹（批量）或单个 .xlsx 文件。
+//   - 文件夹：返回第一个 xlsx 的表头 + 所有 Sheet 名并集。
+//   - 单文件：把它当成"只有 1 个文件的文件夹"等价处理（FirstFile=文件名，
+//     Sheets=该文件全部 Sheet，Columns=第 1 个 Sheet 的表头）。
+//
 // 前端用来给用户"勾选搜索列 + 勾选要处理的 Sheet"。
 func (s *Service) PreviewFolder(folder string, headerRow int) (*HeaderPreview, error) {
 	if folder == "" {
-		return nil, core.New("INVALID_FOLDER", "文件夹路径为空")
+		return nil, core.New("INVALID_FOLDER", "源路径为空")
 	}
 	stat, err := os.Stat(folder)
-	if err != nil || !stat.IsDir() {
-		return nil, core.New("INVALID_FOLDER", "不是有效的文件夹: "+folder)
+	if err != nil {
+		return nil, core.Wrap("INVALID_FOLDER", "无法访问源路径: "+folder, err)
+	}
+	// 单文件分支：直接读 1 个文件的预览，组装成 HeaderPreview 返回。
+	if !stat.IsDir() {
+		if !strings.EqualFold(filepath.Ext(folder), ".xlsx") {
+			return nil, core.New("INVALID_FILE", "仅支持 .xlsx 文件: "+folder)
+		}
+		fp, err := s.PreviewFile(folder, headerRow)
+		if err != nil {
+			return nil, err
+		}
+		return &HeaderPreview{
+			FirstFile: filepath.Base(fp.Path),
+			Columns:   fp.Columns,
+			Sheets:    fp.Sheets,
+		}, nil
 	}
 	entries, err := os.ReadDir(folder)
 	if err != nil {
@@ -157,6 +176,7 @@ func buildExtractTask(req ExtractRequest) (core.ExtractTask, error) {
 		HeaderRow:      headerRow,
 		PreserveImages: req.PreserveImages,
 		SheetNames:     req.SheetNames,
+		FilenamePrefix: req.FilenamePrefix,
 	}, nil
 }
 

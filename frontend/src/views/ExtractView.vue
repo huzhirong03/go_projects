@@ -14,7 +14,8 @@ import {
 
 // 默认值（首次启动 / "恢复默认"时使用）。
 const defaults = {
-    folderPath: '',
+    sourceMode: 'folder',      // folder | file
+    folderPath: '',            // 兼作单文件路径（源数据路径）
     outputDir: '',
     keywordsRaw: '',
     exact: true,
@@ -25,6 +26,7 @@ const defaults = {
     searchColumns: [],
     strategy: OUTPUT_PER_KEYWORD,
     preserveImages: true,
+    filenamePrefix: '',        // '' = 默认；'搜索_' = 搜索_关键词
     // 折叠状态（默认全展开）
     foldPaths: false,
     foldKeywords: false,
@@ -115,6 +117,7 @@ async function submit() {
     try {
         const handle = await startExtract({
             folderPath: form.folderPath,
+            filenamePrefix: form.filenamePrefix || '',
             keywordsRaw: form.keywordsRaw,
             exact: form.exact,
             contains: form.contains,
@@ -146,8 +149,11 @@ async function submit() {
 
         <Collapsible title="路径配置" :open="!form.foldPaths" @update:open="v => form.foldPaths = !v">
             <div class="row-2col">
-                <PathPicker v-model="form.folderPath" mode="folder"
-                            label="源文件夹" placeholder="选择含多个 Excel 的文件夹" />
+                <PathPicker v-model="form.folderPath"
+                            v-model:mode="form.sourceMode"
+                            :allow-switch="true"
+                            label="源数据"
+                            :placeholder="form.sourceMode === 'file' ? '选一个 .xlsx 文件' : '选含多个 Excel 的文件夹'" />
                 <PathPicker v-model="form.outputDir" mode="folder"
                             label="输出目录" placeholder="结果会写到这个目录" />
             </div>
@@ -205,17 +211,26 @@ async function submit() {
             </div>
         </Collapsible>
 
-        <div class="strip">
-            <span class="strip-title">输出策略</span>
-            <div class="inline-group radio-group">
-                <label><input type="radio" :value="OUTPUT_PER_KEYWORD" v-model="form.strategy" />
-                    每个关键词一个文件</label>
-                <label><input type="radio" :value="OUTPUT_MERGED" v-model="form.strategy" />
-                    合成一个文件</label>
-                <label><input type="radio" :value="OUTPUT_PER_SOURCE" v-model="form.strategy" />
-                    每个源文件一个</label>
+        <div class="strip strip-output">
+            <div class="strip-row">
+                <span class="strip-title">策略</span>
+                <div class="inline-group radio-group">
+                    <label><input type="radio" :value="OUTPUT_PER_KEYWORD" v-model="form.strategy" />
+                        每个关键词一个文件</label>
+                    <label><input type="radio" :value="OUTPUT_MERGED" v-model="form.strategy" />
+                        合成一个文件</label>
+                    <label><input type="radio" :value="OUTPUT_PER_SOURCE" v-model="form.strategy" />
+                        每个源文件一个</label>
+                </div>
             </div>
-            <label class="keep-images"><input type="checkbox" v-model="form.preserveImages" /> 保留图片（跟随行）</label>
+            <div class="strip-row">
+                <span class="strip-title">命名</span>
+                <select v-model="form.filenamePrefix" class="name-select">
+                    <option value="">默认</option>
+                    <option value="搜索_">搜索_关键词</option>
+                </select>
+                <label class="keep-images"><input type="checkbox" v-model="form.preserveImages" /> 保留图片（跟随行）</label>
+            </div>
         </div>
 
         <div class="actions">
@@ -229,67 +244,135 @@ async function submit() {
 </template>
 
 <style scoped>
-.view { display: flex; flex-direction: column; gap: 16px; }
-.view-header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
-.view-title { margin: 0; font-size: 20px; color: #f1f5f9; }
-.view-desc { color: #94a3b8; font-size: 13px; }
+.view { display: flex; flex-direction: column; gap: 10px; }
+.view-header {
+    display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+}
+.view-title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: -0.015em;
+}
+.view-desc { color: var(--text-secondary); font-size: 13px; }
+
 .label-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.keep-images { margin-left: auto; color: #cbd5e1; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.keep-images {
+    margin-left: auto;
+    color: var(--text-secondary);
+    display: inline-flex; align-items: center; gap: 6px;
+    cursor: pointer;
+    font-size: 13px;
+}
 .row-2col {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 14px;
+    gap: 12px;
     align-items: start;
 }
-.match-group { padding-top: 4px; }
+.match-group { padding-top: 2px; }
+
 .strip {
-    background: #1f2738;
-    border: 1px solid #2d3748;
-    border-radius: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
     padding: 10px 14px;
     display: flex;
     align-items: center;
-    gap: 14px;
+    gap: 16px;
     flex-wrap: wrap;
-    color: #cbd5e1;
+    color: var(--text);
+    box-shadow: var(--shadow-card);
 }
-.strip-title { font-size: 14px; font-weight: 600; color: #e2e8f0; }
+.strip-output {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+}
+.strip-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+.name-select {
+    height: 28px;
+    padding: 0 8px;
+    font-size: 13px;
+    min-width: 160px;
+}
+.strip-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
 .card {
-    background: #1f2738;
-    border: 1px solid #2d3748;
-    border-radius: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
     padding: 16px;
     display: flex;
     flex-direction: column;
     gap: 14px;
+    box-shadow: var(--shadow-card);
 }
+
 .field { display: flex; flex-direction: column; gap: 6px; }
-.field-label { font-size: 13px; color: #a9b4c6; font-weight: 500; }
-.field-hint { font-size: 12px; color: #64748b; margin-left: 6px; }
-.inline-group { display: flex; gap: 18px; flex-wrap: wrap; color: #cbd5e1; }
-.inline-group label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
-.radio-group { gap: 10px; }
+.field-label {
+    font-size: 13px;
+    color: var(--text);
+    font-weight: 600;
+}
+.field-hint { font-size: 12px; color: var(--text-tertiary); margin-left: 6px; }
+.inline-group {
+    display: flex; gap: 16px; flex-wrap: wrap;
+    color: var(--text);
+}
+.inline-group label {
+    display: inline-flex; align-items: center; gap: 6px;
+    cursor: pointer; font-size: 13px;
+}
+.radio-group { gap: 12px; }
+
 .column-selector {
     margin-top: 8px;
     padding: 10px;
-    background: #0f172a;
-    border-radius: 6px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
     display: flex;
     flex-direction: column;
     gap: 8px;
 }
 .column-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip {
-    background: #334155;
-    padding: 4px 10px;
-    border-radius: 14px;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    padding: 3px 10px;
+    border-radius: 12px;
     font-size: 12px;
-    color: #e2e8f0;
+    color: var(--text-secondary);
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
     cursor: pointer;
+    transition: background var(--t-fast) var(--ease),
+                border-color var(--t-fast) var(--ease),
+                color var(--t-fast) var(--ease);
 }
-.error-msg { color: #f87171; font-size: 12px; }
-.actions { display: flex; justify-content: flex-end; }
+.chip:hover { background: var(--surface-hover); color: var(--text); }
+.chip:has(input:checked) {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--accent-soft-fg);
+    font-weight: 600;
+}
+
+.error-msg { color: var(--danger); font-size: 12px; }
+.actions { display: flex; justify-content: flex-end; padding-top: 4px; }
 </style>
