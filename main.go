@@ -109,7 +109,8 @@ func main() {
 	// Create application with options
 	log.Printf("[STARTUP] before wails.Run, +%v", time.Since(procStart))
 	err := wails.Run(&options.App{
-		Title:  core.AppName + " " + core.Version + " · " + core.BrandTagline,
+		// 窗口标题保持简洁，只放应用名 + 版本号；副标"大荣老师出品"在 topbar 显示。
+		Title:  core.AppName + " " + core.Version,
 		Width:  1000,
 		Height: 800,
 		AssetServer: &assetserver.Options{
