@@ -20,8 +20,6 @@ import (
 	"excel-master/internal/excelio"
 	"excel-master/internal/matcher"
 	"excel-master/internal/pipeline"
-
-	"github.com/xuri/excelize/v2"
 )
 
 // extractInplace 走"扫描命中 → 复制源 Sheet → 过滤行 → 原子替换源"的独立路径。
@@ -89,45 +87,46 @@ func extractInplace(
 		emitter.Log(core.LogInfo, "已生成备份: "+bak)
 	}
 
-	// 克隆源到 tmp；必须保留 .xlsx 扩展名，否则 excelize.Save 会拒绝。
-	tmpPath := srcPath + ".tmp.xlsx"
-	_ = os.Remove(tmpPath)
-	if err := excelio.CloneFile(srcPath, tmpPath); err != nil {
-		return nil, err
-	}
-	cleanup := func() { _ = os.Remove(tmpPath) }
-
-	f, err := excelize.OpenFile(tmpPath)
-	if err != nil {
-		cleanup()
-		return nil, core.Wrap("EXCEL_OPEN_FAILED", "打开临时文件失败: "+tmpPath, err)
-	}
-	defer func() { _ = f.Close() }()
-
-	emitter.Progress(core.Progress{Stage: "finalizing", Done: total, Total: total, Message: "写入新 Sheet"})
+	emitter.Progress(core.Progress{Stage: "finalizing", Done: total, Total: total, Message: "构造新 Sheet"})
 	prefix := task.FilenamePrefix
 	if prefix == "" {
 		prefix = "搜索_"
 	}
 	multiSheet := len(hits) > 1
 
-	created, err := appendInplaceSheets(f, hits, strategy, prefix, task.HeaderRow, multiSheet)
+	// 把 hits 转换为 InplaceSheetSpec 列表（带唯一化命名）
+	existingNames, err := excelio.ListSheetNamesZip(srcPath)
 	if err != nil {
+		return nil, err
+	}
+	nameSet := map[string]struct{}{}
+	for _, n := range existingNames {
+		nameSet[n] = struct{}{}
+	}
+	specs := buildInplaceSpecs(hits, strategy, prefix, task.HeaderRow, multiSheet, nameSet)
+	if len(specs) == 0 {
+		return nil, core.New("NO_INPLACE_SPECS", "未生成任何待写回的新 Sheet")
+	}
+
+	// 一次性 zip 手术：复制原 xlsx + 追加 N 个过滤后的新 Sheet 到 tmp，避开 excelize.RemoveRow O(N²) 陷阱
+	tmpPath := srcPath + ".tmp.xlsx"
+	_ = os.Remove(tmpPath)
+	cleanup := func() { _ = os.Remove(tmpPath) }
+	tZip := time.Now()
+	if err := excelio.AddFilteredSheetsZip(srcPath, tmpPath, specs); err != nil {
 		cleanup()
 		return nil, err
 	}
+	emitter.Log(core.LogInfo, fmt.Sprintf("[TIMING] inplace zip 手术 %v：追加 %d 个 Sheet",
+		time.Since(tZip).Round(time.Millisecond), len(specs)))
 
-	if err := f.Save(); err != nil {
-		cleanup()
-		return nil, core.Wrap("EXCEL_SAVE_FAILED", "保存临时文件失败", err)
-	}
-	if err := f.Close(); err != nil {
-		cleanup()
-		return nil, core.Wrap("EXCEL_CLOSE_FAILED", "关闭临时文件失败", err)
-	}
 	if err := excelio.AtomicReplace(srcPath, tmpPath); err != nil {
 		cleanup()
 		return nil, err
+	}
+	created := make([]string, 0, len(specs))
+	for _, s := range specs {
+		created = append(created, s.NewSheetName)
 	}
 
 	emitter.Log(core.LogInfo, fmt.Sprintf(
@@ -167,59 +166,45 @@ func validateInplace(
 	return srcPath, strategy, nil
 }
 
-// appendInplaceSheets 在已打开的 f 上，依据策略把 hits 里的命中行落成新 Sheet。
-// 返回新增 Sheet 名列表。
-func appendInplaceSheets(
-	f *excelize.File,
+// buildInplaceSpecs 把 hits 转为一批 InplaceSheetSpec，名字动态结合 nameSet 去重。
+// nameSet 会被就地更新（加入本次生成的名字，避免 spec 内部重名）。
+func buildInplaceSpecs(
 	hits map[string]map[string][]int,
 	strategy core.OutputStrategy,
 	prefix string,
 	headerRow int,
 	multiSheet bool,
-) ([]string, error) {
-	created := []string{}
+	nameSet map[string]struct{},
+) []excelio.InplaceSheetSpec {
+	headerRows := headerRowsToKeep(headerRow)
+	specs := []excelio.InplaceSheetSpec{}
 	for sourceSheet, kwHits := range hits {
 		switch strategy {
 		case core.OutputPerKeyword:
 			for kw, rows := range kwHits {
-				name := excelio.UniqueSheetName(f,
-					buildInplaceSheetName(prefix, kw, sourceSheet, multiSheet))
-				if err := writeInplaceSheet(f, sourceSheet, name, headerRow, rows); err != nil {
-					return created, err
-				}
-				created = append(created, name)
+				base := buildInplaceSheetName(prefix, kw, sourceSheet, multiSheet)
+				name := excelio.UniqueNameInSet(base, nameSet)
+				keep := append([]int{}, headerRows...)
+				keep = append(keep, rows...)
+				specs = append(specs, excelio.InplaceSheetSpec{
+					SourceSheet: sourceSheet, NewSheetName: name, KeepRows: keep,
+				})
 			}
 		case core.OutputMerged:
-			// 所有关键词的命中行合并去重
 			merged := mergeKeywordRows(kwHits)
 			if len(merged) == 0 {
 				continue
 			}
-			name := excelio.UniqueSheetName(f,
-				buildInplaceSheetName(prefix, "合并", sourceSheet, multiSheet))
-			if err := writeInplaceSheet(f, sourceSheet, name, headerRow, merged); err != nil {
-				return created, err
-			}
-			created = append(created, name)
-		default:
-			return created, core.New("INVALID_STRATEGY",
-				"inplace 模式不支持策略: "+string(strategy))
+			base := buildInplaceSheetName(prefix, "合并", sourceSheet, multiSheet)
+			name := excelio.UniqueNameInSet(base, nameSet)
+			keep := append([]int{}, headerRows...)
+			keep = append(keep, merged...)
+			specs = append(specs, excelio.InplaceSheetSpec{
+				SourceSheet: sourceSheet, NewSheetName: name, KeepRows: keep,
+			})
 		}
 	}
-	return created, nil
-}
-
-// writeInplaceSheet 在 f 上创建新 Sheet newName（从 sourceSheet 复制），
-// 只保留"表头行 + 命中行"。
-func writeInplaceSheet(
-	f *excelize.File, sourceSheet, newName string, headerRow int, hitRows []int,
-) error {
-	if err := excelio.CopySheetWithin(f, sourceSheet, newName); err != nil {
-		return err
-	}
-	keep := headerRowsToKeep(headerRow)
-	keep = append(keep, hitRows...)
-	return excelio.FilterRowsInSheet(f, newName, keep)
+	return specs
 }
 
 // mergeKeywordRows 把 kw->rows 合并为不重复升序的行号切片。

@@ -89,7 +89,7 @@ func mergeSecondariesInto(tmpPath, dstPath, sheetName string, secondaries []Merg
 	defer tmpZip.Close()
 
 	// 1) 解析 tmp 的状态
-	state, err := readMergeState(tmpZip, sheetName)
+	state, err := readMergeState(&tmpZip.Reader, sheetName)
 	if err != nil {
 		return err
 	}
@@ -224,10 +224,10 @@ type mergeState struct {
 	newMedia []mediaEntry
 
 	// 用于分配新 ID
-	nextRow         int            // 下一个可用的 1-based 行号（追加到 sheetData 末尾）
-	nextRID         int            // 下一个 drawing rels 里可用的 rId 序号
-	nextPicID       int            // 下一个 drawing.xml 里 cNvPr id 属性
-	usedMediaNames  map[string]bool // 已存在的 media 文件名（包括 tmp 里的 + 新增的）
+	nextRow        int             // 下一个可用的 1-based 行号（追加到 sheetData 末尾）
+	nextRID        int             // 下一个 drawing rels 里可用的 rId 序号
+	nextPicID      int             // 下一个 drawing.xml 里 cNvPr id 属性
+	usedMediaNames map[string]bool // 已存在的 media 文件名（包括 tmp 里的 + 新增的）
 
 	// 模板第一数据行（row 2）的列样式 ID：col 索引 (0-based) -> styleID 字符串（如 "3"）
 	colStyles map[int]string
@@ -245,7 +245,7 @@ type mediaEntry struct {
 }
 
 // readMergeState 解析 tmp 基底，初始化 state。
-func readMergeState(zr *zip.ReadCloser, sheetName string) (*mergeState, error) {
+func readMergeState(zr *zip.Reader, sheetName string) (*mergeState, error) {
 	st := &mergeState{
 		sheetName:      sheetName,
 		usedMediaNames: map[string]bool{},
@@ -324,10 +324,10 @@ func readMergeState(zr *zip.ReadCloser, sheetName string) (*mergeState, error) {
 // ====================================================================
 
 var (
-	rowOpenRe   = regexp.MustCompile(`<row r="(\d+)"`)
-	cellRowRe   = regexp.MustCompile(`<c r="([A-Z]+)2"[^/>]*?(?:s="(\d+)")?[^/>]*?(?:/>|>)`) // row 2 的 cell + style
-	picIDRe     = regexp.MustCompile(`<xdr:cNvPr\s+id="(\d+)"`)
-	relIDRe     = regexp.MustCompile(`Id="rId(\d+)"`)
+	rowOpenRe = regexp.MustCompile(`<row r="(\d+)"`)
+	cellRowRe = regexp.MustCompile(`<c r="([A-Z]+)2"[^/>]*?(?:s="(\d+)")?[^/>]*?(?:/>|>)`) // row 2 的 cell + style
+	picIDRe   = regexp.MustCompile(`<xdr:cNvPr\s+id="(\d+)"`)
+	relIDRe   = regexp.MustCompile(`Id="rId(\d+)"`)
 )
 
 // analyzeSheetForMerge 扫描 sheet xml 找：

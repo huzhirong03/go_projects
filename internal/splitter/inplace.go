@@ -5,19 +5,18 @@ package splitter
 // 设计：上层 (by_rows / by_column) 先把"每个 part 在源 Sheet 里要保留的行号"
 // 收集成 InplacePlan 列表，然后调 runInplaceSplit 一次性完成：
 //   1. 可选备份源文件
-//   2. 二进制克隆 src → tmp.xlsx
-//   3. 对每个 plan 的每个 part：CopySheetWithin → FilterRowsInSheet
-//   4. Save tmp + AtomicReplace 替换源
+//   2. 把 plan 转为 InplaceSheetSpec 列表（名字去重）
+//   3. excelio.AddFilteredSheetsZip 一次性 zip 手术：src → tmp 追加 N 个过滤后的新 Sheet
+//   4. AtomicReplace 替换源
 //
-// by_keyword 不走这条路径，它直接复用 extractor 的 inplace 分支。
+// V1.x 旧路径用 excelize CopySheet+RemoveRow，遇上大 sheet 会 O(N²) 卡几十秒。
+// 现路径纯 zip+xml 手术，能在几百毫秒内完成。by_keyword 走 extractor inplace 分支。
 
 import (
 	"os"
 
 	"excel-master/internal/core"
 	"excel-master/internal/excelio"
-
-	"github.com/xuri/excelize/v2"
 )
 
 // InplacePart 描述一个要落到新 Sheet 的 part。
@@ -49,53 +48,51 @@ func runInplaceSplit(srcPath, prefix string, plans []InplacePlan, backup bool) (
 			return nil, err
 		}
 	}
-	tmpPath := srcPath + ".tmp.xlsx"
-	_ = os.Remove(tmpPath)
-	if err := excelio.CloneFile(srcPath, tmpPath); err != nil {
+
+	// 处理 sheet 名唯一化：读原 xlsx 现有 sheet 名作为初始集合
+	existingNames, err := excelio.ListSheetNamesZip(srcPath)
+	if err != nil {
 		return nil, err
 	}
-	cleanup := func() { _ = os.Remove(tmpPath) }
-
-	f, err := excelize.OpenFile(tmpPath)
-	if err != nil {
-		cleanup()
-		return nil, core.Wrap("EXCEL_OPEN_FAILED", "打开临时文件失败: "+tmpPath, err)
+	nameSet := map[string]struct{}{}
+	for _, n := range existingNames {
+		nameSet[n] = struct{}{}
 	}
 
 	multiSheet := len(plans) > 1
-	created := []string{}
+	specs := []excelio.InplaceSheetSpec{}
 	for _, plan := range plans {
 		for _, part := range plan.Parts {
 			if len(part.KeepRows) == 0 {
 				continue
 			}
-			name := buildSplitInplaceSheetName(prefix, part.Label, plan.SourceSheet, multiSheet)
-			name = excelio.UniqueSheetName(f, name)
-			if err := excelio.CopySheetWithin(f, plan.SourceSheet, name); err != nil {
-				_ = f.Close()
-				cleanup()
-				return created, err
-			}
-			if err := excelio.FilterRowsInSheet(f, name, part.KeepRows); err != nil {
-				_ = f.Close()
-				cleanup()
-				return created, err
-			}
-			created = append(created, name)
+			base := buildSplitInplaceSheetName(prefix, part.Label, plan.SourceSheet, multiSheet)
+			name := excelio.UniqueNameInSet(base, nameSet)
+			specs = append(specs, excelio.InplaceSheetSpec{
+				SourceSheet:  plan.SourceSheet,
+				NewSheetName: name,
+				KeepRows:     part.KeepRows,
+			})
 		}
 	}
-	if err := f.Save(); err != nil {
-		_ = f.Close()
-		cleanup()
-		return created, core.Wrap("EXCEL_SAVE_FAILED", "保存临时文件失败", err)
+	if len(specs) == 0 {
+		return nil, core.New("INPLACE_NO_PARTS", "没有可写回的分片")
 	}
-	if err := f.Close(); err != nil {
+
+	tmpPath := srcPath + ".tmp.xlsx"
+	_ = os.Remove(tmpPath)
+	cleanup := func() { _ = os.Remove(tmpPath) }
+	if err := excelio.AddFilteredSheetsZip(srcPath, tmpPath, specs); err != nil {
 		cleanup()
-		return created, core.Wrap("EXCEL_CLOSE_FAILED", "关闭临时文件失败", err)
+		return nil, err
 	}
 	if err := excelio.AtomicReplace(srcPath, tmpPath); err != nil {
 		cleanup()
-		return created, err
+		return nil, err
+	}
+	created := make([]string, 0, len(specs))
+	for _, s := range specs {
+		created = append(created, s.NewSheetName)
 	}
 	return created, nil
 }

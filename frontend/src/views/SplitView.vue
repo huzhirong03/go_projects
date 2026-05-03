@@ -83,9 +83,13 @@ const needsHeader = computed(() => form.mode !== SPLIT_BY_SHEET)
 // CSV 源识别：单文件拆分看后缀即可。
 const hasCSVSource = computed(() => /\.csv$/i.test(form.sourcePath || ''))
 
-// inplace 可用性：xlsx 源且不是 by_sheet 模式（by_sheet inplace 语义为 0）
+// inplace 控件可见性：xlsx 源就显示（即使 by_sheet 也显示，但按钮 disabled）
+// inplace 实际可用性：xlsx 源 + 不是 by_sheet 模式（by_sheet inplace 语义为 0）
+const inplaceVisible = computed(() =>
+    !!form.sourcePath && !/\.csv$/i.test(form.sourcePath)
+)
 const inplaceAvailable = computed(() =>
-    !!form.sourcePath && !/\.csv$/i.test(form.sourcePath) && form.mode !== SPLIT_BY_SHEET
+    inplaceVisible.value && form.mode !== SPLIT_BY_SHEET
 )
 const isInplace = computed(() => inplaceAvailable.value && form.outputTarget === 'inplace_sheets')
 
@@ -202,20 +206,20 @@ async function submit() {
                     <span class="field-hint">结果会以新 Sheet 形式写回源文件，无需输出目录</span>
                 </div>
             </div>
-            <div v-if="inplaceAvailable" class="strip strip-inline" style="margin-top:8px">
+            <div v-if="inplaceVisible" class="strip strip-inline" style="margin-top:8px">
                 <span class="strip-title">输出目标</span>
                 <div class="seg" role="tablist">
                     <button type="button" :class="['seg-btn', { active: form.outputTarget === 'new_files' }]"
                             @click="form.outputTarget = 'new_files'">📄 新文件</button>
-                    <button type="button" :class="['seg-btn', { active: form.outputTarget === 'inplace_sheets' }]"
-                            @click="form.outputTarget = 'inplace_sheets'">📑 写回源文件新 Sheet</button>
+                    <button type="button"
+                            :class="['seg-btn', { active: form.outputTarget === 'inplace_sheets', disabled: !inplaceAvailable }]"
+                            :disabled="!inplaceAvailable"
+                            :title="!inplaceAvailable ? '按 Sheet 拆分时不可用：源里每个 Sheet 已经是结果，无需再追加新 Sheet。请改用按行数 / 列值 / 关键词。' : ''"
+                            @click="inplaceAvailable && (form.outputTarget = 'inplace_sheets')">📑 写回源文件新 Sheet</button>
                 </div>
                 <label v-if="isInplace" class="keep-images" style="margin-left:auto">
                     <input type="checkbox" v-model="form.backupSource" /> 写回前先备份源文件 (.bak)
                 </label>
-            </div>
-            <div v-else-if="form.mode === SPLIT_BY_SHEET" class="field-hint" style="margin-top:6px">
-                按 Sheet 拆分仅支持输出新文件
             </div>
         </Collapsible>
 
@@ -413,7 +417,8 @@ async function submit() {
     padding: 4px 12px; border-radius: 3px; cursor: pointer;
     display: inline-flex; align-items: center; gap: 4px;
 }
-.seg-btn:hover { background: var(--surface-hover); color: var(--text); }
+.seg-btn:hover:not(:disabled) { background: var(--surface-hover); color: var(--text); }
+.seg-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .seg-btn.active {
     background: var(--accent-soft);
     color: var(--accent-soft-fg);

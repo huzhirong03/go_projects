@@ -107,7 +107,7 @@ func CloneAndExtractZipMulti(srcPath, dstPath string, keepSheetRows map[string][
 	}()
 
 	// 解析 xlsx 结构：找到要保留的所有 sheet 的 xml/drawing 路径，以及要丢弃的资源
-	layout, err := readXlsxLayout(src, keepSheets)
+	layout, err := readXlsxLayout(&src.Reader, keepSheets)
 	if err != nil {
 		return err
 	}
@@ -247,7 +247,7 @@ func (l *xlsxLayout) keepRIDSet() map[string]struct{} {
 
 // readXlsxLayout 读 workbook.xml + rels + sheetN.xml.rels 定位多 sheet 保留 / 丢弃资源。
 // keepSheets 是要保留的 sheet 名集合；其余 sheet 进 dropPrefixes / dropSheetPaths / dropRIDs。
-func readXlsxLayout(zr *zip.ReadCloser, keepSheets []string) (*xlsxLayout, error) {
+func readXlsxLayout(zr *zip.Reader, keepSheets []string) (*xlsxLayout, error) {
 	keepSet := map[string]struct{}{}
 	for _, s := range keepSheets {
 		keepSet[s] = struct{}{}
@@ -402,7 +402,7 @@ func readZipEntry(f *zip.File) ([]byte, error) {
 }
 
 // readEntryByName 按名读某个条目；不存在返回错误。
-func readEntryByName(zr *zip.ReadCloser, name string) ([]byte, error) {
+func readEntryByName(zr *zip.Reader, name string) ([]byte, error) {
 	for _, f := range zr.File {
 		if f.Name == name {
 			return readZipEntry(f)
@@ -412,7 +412,7 @@ func readEntryByName(zr *zip.ReadCloser, name string) ([]byte, error) {
 }
 
 // readEntryByNameOptional 按名读某个条目；不存在返回 nil, nil（不报错）。
-func readEntryByNameOptional(zr *zip.ReadCloser, name string) ([]byte, error) {
+func readEntryByNameOptional(zr *zip.Reader, name string) ([]byte, error) {
 	for _, f := range zr.File {
 		if f.Name == name {
 			return readZipEntry(f)

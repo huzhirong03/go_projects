@@ -28,7 +28,7 @@ func (st *mergeState) absorbSecondary(s MergeSource) error {
 	defer zr.Close()
 
 	// 1) 找 secondary 的 sheet xml + drawing
-	layout, err := readXlsxLayout(zr, []string{s.SheetName})
+	layout, err := readXlsxLayout(&zr.Reader, []string{s.SheetName})
 	if err != nil {
 		return err
 	}
@@ -38,10 +38,10 @@ func (st *mergeState) absorbSecondary(s MergeSource) error {
 	}
 
 	// 2) 读 sharedStrings（解引用 t="s" 的 cell）
-	sst, _ := readSharedStrings(zr)
+	sst, _ := readSharedStrings(&zr.Reader)
 
 	// 3) 读 secondary sheet xml，对每个 KeepRow 抽出来转成 inline-string row
-	sheetData, err := readEntryByName(zr, ent.sheetXMLPath)
+	sheetData, err := readEntryByName(&zr.Reader, ent.sheetXMLPath)
 	if err != nil {
 		return err
 	}
@@ -67,7 +67,7 @@ func (st *mergeState) absorbSecondary(s MergeSource) error {
 	if ent.drawingXMLPath == "" || len(rowMap) == 0 {
 		return nil
 	}
-	if err := st.absorbSecondaryImages(zr, ent.drawingXMLPath, rowMap); err != nil {
+	if err := st.absorbSecondaryImages(&zr.Reader, ent.drawingXMLPath, rowMap); err != nil {
 		return err
 	}
 	return nil
@@ -282,7 +282,7 @@ func xmlEscape(s string) string {
 
 // readSharedStrings 读 xl/sharedStrings.xml 返回字符串数组（按 si 顺序）。
 // 没有则返回 nil, nil。
-func readSharedStrings(zr *zip.ReadCloser) ([]string, error) {
+func readSharedStrings(zr *zip.Reader) ([]string, error) {
 	data, err := readEntryByNameOptional(zr, "xl/sharedStrings.xml")
 	if err != nil || data == nil {
 		return nil, err
@@ -330,7 +330,7 @@ var rels1Re = regexp.MustCompile(`<Relationship\s+[^>]*Id="(rId\d+)"[^>]*Target=
 //   - 读 drawing.xml，找 from.row 命中 rowMap 的 anchor
 //   - 读对应 image 字节 + 拷到 state.newMedia
 //   - 在 state.appendAnchors / appendRels 累加
-func (st *mergeState) absorbSecondaryImages(zr *zip.ReadCloser, drawingXMLPath string, rowMap map[int]int) error {
+func (st *mergeState) absorbSecondaryImages(zr *zip.Reader, drawingXMLPath string, rowMap map[int]int) error {
 	drawData, err := readEntryByName(zr, drawingXMLPath)
 	if err != nil {
 		return err
