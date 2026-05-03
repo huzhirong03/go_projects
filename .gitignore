@@ -5,14 +5,43 @@ frontend/dist
 # Go 构建产物
 *.exe
 
+# Wails build 产出（保留 build/ 其它目录：icon/manifest 等）
+/build/bin/
+
+# 运行时日志（startup.log 会落到 exe 同目录；logs/ 是 task 日志目录）
+*.log
+/logs/
+/startup.log
+
+# 绿色模式下运行时产生的用户配置（不应提交到仓库）
+/config.json
+
+# WebView2 Fixed Version Runtime（后续 wails build 会把它打包进去，不入库）
+/webview2_runtime/
+
 # 运行时产生的测试输出目录，不污染仓库
 testdata_*_out/
 testdata_out*/
 test_out_*/
 
+# 学员真实案例样本（可能含隐私数据，禁止入库；如要入库请 git add -f）
+testdata_school_real_cases/
+testdata_*_private/
+
 # Excel 打开时产生的临时锁文件（以 ~$ 开头）
 ~$*
 **/~$*
+
+# 根目录的各类调试中间产物（诊断工具输出的 zip/xml 快照等）
+/diag_*
+/tmp_*
+/test_*
+/_out_*
+/_src_*
+/out_*.xml
+/src_*.xml
+/out_*.txt
+/src_*.txt
 
 # 本机 IDE 文件
 .idea/
