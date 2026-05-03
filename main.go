@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"excel-master/internal/core"
 	"io"
 	"log"
 	"os"
@@ -71,7 +72,7 @@ func main() {
 	// Create application with options
 	log.Printf("[STARTUP] before wails.Run, +%v", time.Since(procStart))
 	err := wails.Run(&options.App{
-		Title:  "excel-master",
+		Title:  core.AppName + " " + core.Version,
 		Width:  1000,
 		Height: 800,
 		AssetServer: &assetserver.Options{

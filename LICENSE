@@ -1,0 +1,46 @@
+Excel 拆合大师 (Excel Master Suite)
+Copyright © 2026 huzhirong03
+
+==================================================================
+软件使用授权条款 (Software License Terms)
+==================================================================
+
+1. 授权范围 (Grant of License)
+
+   本软件 (Excel 拆合大师，以下简称"本软件") 仅授权给作者明确许可
+   的学员、合作方在其个人或所属单位的日常办公场景下使用。未经作者
+   书面授权，不得用于任何形式的商业销售、商业分发、商业服务（包括
+   但不限于：作为付费服务的一部分提供、转售、改头换面后销售）。
+
+2. 修改与逆向 (Modification & Reverse Engineering)
+
+   本软件为闭源发布。除作者授权的开发协作场景外：
+   - 不得反编译、反汇编、逆向工程本软件
+   - 不得修改本软件的二进制文件
+   - 学员之间分享 exe 时请保留原始来源信息
+
+3. 免责声明 (Disclaimer of Warranty)
+
+   本软件按"现状"提供 (AS IS)，作者不对以下情况承担责任：
+   - 软件运行过程中产生的任何直接或间接数据损失
+   - 因软件 bug 或不兼容导致的工作中断
+   - 用户在未备份原始 Excel 文件情况下进行操作的后果
+   - 第三方依赖（如 WebView2 Runtime、excelize）的潜在缺陷
+
+   用户在批量处理重要 Excel 文件前，应自行做好数据备份。
+
+4. 第三方组件 (Third-Party Components)
+
+   本软件使用以下开源组件，相关组件遵循其原始许可证：
+   - excelize (BSD-3-Clause): https://github.com/qax-os/excelize
+   - Wails v2 (MIT): https://github.com/wailsapp/wails
+   - Vue 3 (MIT): https://github.com/vuejs/core
+   - go-pinyin (MIT): https://github.com/mozillazg/go-pinyin
+   - Microsoft WebView2 Runtime (MS Software License Terms)
+
+5. 联系方式 (Contact)
+
+   反馈 bug、申请商业授权或获取最新版本：
+   邮箱: 379705723@qq.com
+
+==================================================================

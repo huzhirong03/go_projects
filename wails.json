@@ -9,5 +9,12 @@
   "author": {
     "name": "huzhirong03",
     "email": "379705723@qq.com"
+  },
+  "info": {
+    "companyName": "huzhirong03",
+    "productName": "Excel 拆合大师",
+    "productVersion": "1.0.0",
+    "copyright": "Copyright © 2026 huzhirong03",
+    "comments": "Excel 工作簿批量拆分提取工具 (Excel Master Suite)"
   }
 }
