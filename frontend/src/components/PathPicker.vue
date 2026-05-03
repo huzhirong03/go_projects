@@ -30,8 +30,8 @@ async function pick() {
 function setMode(m) {
     if (m === props.mode) return
     emit('update:mode', m)
-    // 切类型时清空旧路径，避免文件路径残留在文件夹模式
-    if (props.modelValue) emit('update:modelValue', '')
+    // 不清空 modelValue：父组件用 computed 转发到不同字段（folderPath/filePath），
+    // 切回来时各自路径仍保留。
 }
 </script>
 

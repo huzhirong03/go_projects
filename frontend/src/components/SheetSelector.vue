@@ -94,9 +94,8 @@ function isChecked(name) {
 .multi .header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 12px;
 }
 .field-label { font-size: 13px; color: var(--text); font-weight: 600; }
 .label-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }

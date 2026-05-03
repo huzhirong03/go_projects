@@ -1,5 +1,5 @@
 <script setup>
-import { reactive, watch, onMounted, toRaw, ref, nextTick } from 'vue'
+import { reactive, watch, onMounted, toRaw, ref, nextTick, computed } from 'vue'
 import PathPicker from '../components/PathPicker.vue'
 import ProgressPanel from '../components/ProgressPanel.vue'
 import SheetSelector from '../components/SheetSelector.vue'
@@ -22,7 +22,8 @@ function logT(msg) {
 // 默认值（首次启动 / "恢复默认"时使用）。
 const defaults = {
     sourceMode: 'folder',      // folder | file
-    folderPath: '',            // 兼作单文件路径（源数据路径）
+    folderPath: '',            // 文件夹模式下的路径
+    filePath: '',              // 单文件模式下的路径，两者互不干扰，切换后不丢
     outputDir: '',
     keywordsRaw: '',
     exact: true,
@@ -42,6 +43,16 @@ const defaults = {
 
 const form = reactive({ ...defaults, sheetNames: [] })
 const progressEl = ref(null) // ProgressPanel 容器（ref 保留备用）
+
+// 当前生效的源路径：根据 sourceMode 转发到 folderPath / filePath。
+// PathPicker 用 v-model="sourcePath"，这样切换模式后另一路径仍保留在 form 里。
+const sourcePath = computed({
+    get: () => form.sourceMode === 'file' ? form.filePath : form.folderPath,
+    set: (v) => {
+        if (form.sourceMode === 'file') form.filePath = v
+        else form.folderPath = v
+    },
+})
 
 // 任务完成（成功或失败）时，自动平滑滚到底部，让用户看到结果总结/错误。
 // 用 watch 而不是在 submit 里立刻滚——结果还没出来滚也是空的。
@@ -72,6 +83,14 @@ onMounted(async () => {
         for (const k of PERSIST_KEYS) {
             if (saved[k] !== undefined) form[k] = saved[k]
         }
+        // 字段清洗：folderPath 应该只放文件夹路径，filePath 只放文件路径。
+        // 旧版本只有一个 folderPath 字段，升级后可能 folderPath 里残留文件路径。
+        // 凡是看起来像 Excel 文件的就搬到 filePath，并清空 folderPath，避免切到文件夹模式时显示文件路径。
+        const looksLikeFile = (p) => /\.(xlsx|xls|xlsm|csv)$/i.test(p || '')
+        if (looksLikeFile(form.folderPath)) {
+            if (!form.filePath) form.filePath = form.folderPath
+            form.folderPath = ''
+        }
     } catch (e) {
         console.warn('恢复 extract 配置失败:', e)
     }
@@ -88,8 +107,8 @@ onMounted(async () => {
     )
 })
 
-// 选完文件夹（或改了 headerRow）→ 自动预扫描，无需用户点按钮。
-watch(() => [form.folderPath, form.headerRow], async ([folder]) => {
+// 选完源（文件夹或单文件）或改了 headerRow → 自动预扫描。
+watch(() => [sourcePath.value, form.headerRow], async ([folder]) => {
     if (!folder) {
         previewState.firstFile = ''
         previewState.columns = []
@@ -131,7 +150,9 @@ function scrollToBottom() {
 }
 
 async function submit() {
-    if (!form.folderPath) return showToast('请先选择源文件夹', 'warn')
+    if (!sourcePath.value) {
+        return showToast(form.sourceMode === 'file' ? '请先选择源文件' : '请先选择源文件夹', 'warn')
+    }
     if (!form.outputDir) return showToast('请先选择输出目录', 'warn')
     if (!form.keywordsRaw.trim()) return showToast('请输入至少一个关键词', 'warn')
     if (!form.exact && !form.contains && !form.pinyin) {
@@ -143,7 +164,7 @@ async function submit() {
 
     try {
         const handle = await startExtract({
-            folderPath: form.folderPath,
+            folderPath: sourcePath.value,
             filenamePrefix: form.filenamePrefix || '',
             keywordsRaw: form.keywordsRaw,
             exact: form.exact,
@@ -178,7 +199,7 @@ async function submit() {
 
         <Collapsible title="路径配置" :open="!form.foldPaths" @update:open="v => form.foldPaths = !v">
             <div class="row-2col">
-                <PathPicker v-model="form.folderPath"
+                <PathPicker v-model="sourcePath"
                             v-model:mode="form.sourceMode"
                             :allow-switch="true"
                             label="源数据"
@@ -289,7 +310,6 @@ async function submit() {
 
 .label-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .keep-images {
-    margin-left: auto;
     color: var(--text-secondary);
     display: inline-flex; align-items: center; gap: 6px;
     cursor: pointer;
@@ -366,7 +386,8 @@ async function submit() {
     display: inline-flex; align-items: center; gap: 6px;
     cursor: pointer; font-size: 13px;
 }
-.radio-group { gap: 12px; }
+/* 策略 radio 间距特意加大：让"合成一个文件"在视觉上更接近下行的"保留图片"列。 */
+.radio-group { gap: 32px; }
 
 .column-selector {
     margin-top: 8px;
