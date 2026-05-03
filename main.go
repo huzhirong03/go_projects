@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/wailsapp/wails/v2"
@@ -15,14 +16,43 @@ import (
 // procStart 是进程入口时间，用于启动性能诊断。
 var procStart = time.Now()
 
-// initLogTee 把 log.Printf 同时写到 stderr + 当前目录 startup.log。
-// 用于把启动 timing 日志保留下来供事后分析（dev 模式下 PowerShell 关闭就丢）。
+// startupLogPath 算 startup.log 的真实落点：
+//   - 优先 exe 同目录（绿色 exe 用户搬走整包就带走日志）
+//   - exe 同目录不可写（Program Files / 只读盘）→ fallback 到系统 TEMP
+//   - 拿不到 exe 路径或 TEMP 都不行 → 返回空串，让调用方放弃日志（不阻塞启动）
+func startupLogPath() string {
+	exe, err := os.Executable()
+	if err == nil {
+		if real, err := filepath.EvalSymlinks(exe); err == nil {
+			exe = real
+		}
+		dir := filepath.Dir(exe)
+		// 探针写一次：能写就用 exe 同目录
+		probe, err := os.CreateTemp(dir, ".excel-master-logprobe-*")
+		if err == nil {
+			_ = probe.Close()
+			_ = os.Remove(probe.Name())
+			return filepath.Join(dir, "startup.log")
+		}
+	}
+	// fallback：系统 TEMP，避免污染 cwd（cwd 不可控）
+	return filepath.Join(os.TempDir(), "excel-master-startup.log")
+}
+
+// initLogTee 把 log.Printf 同时写到 stderr + startup.log。
+// 日志路径见 startupLogPath。每次启动 truncate 不堆积。
+// 失败（拿不到任何可写位置）时静默返回 nil，不阻塞启动。
 func initLogTee() *os.File {
-	f, err := os.OpenFile("startup.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	p := startupLogPath()
+	if p == "" {
+		return nil
+	}
+	f, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		return nil
 	}
 	log.SetOutput(io.MultiWriter(os.Stderr, f))
+	log.Printf("[STARTUP] log file: %s", p)
 	return f
 }
 
