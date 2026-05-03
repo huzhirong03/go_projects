@@ -70,6 +70,66 @@ func (m *mergedWriter) hasCSVSource() bool {
 	return false
 }
 
+// singleSourceHit 判断是否只有唯一一个 xlsx 源。返回其路径和 hit；
+// 否则返回空路径和 nil。调用方用来决定走"多 sheet 保留"直通路径。
+func (m *mergedWriter) singleSourceHit() (string, *perSourceHits) {
+	if len(m.hits) != 1 {
+		return "", nil
+	}
+	for path, h := range m.hits {
+		// 额外保险：跳过 CSV（上游已有 hasCSVSource 过滤，这里防御）
+		if core.DetectSourceKind(path) == core.SourceCSV {
+			return "", nil
+		}
+		return path, h
+	}
+	return "", nil
+}
+
+// finalizeSingleSource 单源场景的直通路径：
+//
+// 直接对源文件走一次 CloneAndExtractZipMulti，传入该源**所有命中 sheet** 的
+// keepRows map。好处：
+//   - 保留所有命中 sheet（避免数据丢失）
+//   - 保留 sheet 间的公式引用 / 数据验证 / 命名区域（避免 Excel "部分内容有问题"）
+//   - 图片锚点按 zip 手术规则自动随命中行重映射
+//
+// 注意：如果源 xlsx 里还有"没命中任何行"的 sheet，会被 zip surgery 删掉。
+// 对用户来说这符合 merged 语义（只要命中的内容）。
+func (m *mergedWriter) finalizeSingleSource(
+	ctx context.Context, emitter core.EventEmitter,
+	path string, h *perSourceHits,
+) ([]string, error) {
+	// 走 filterMergePlans 的最小化等效：检查文件可读，遇到被占用时让用户 retry/skip
+	probe := []mergePlan{{path: h.path, sheet: "", rows: nil}}
+	filtered, err := filterMergePlans(ctx, emitter, probe)
+	if err != nil {
+		return nil, err
+	}
+	if len(filtered) == 0 {
+		return nil, nil // 用户选择跳过
+	}
+
+	// 构造 keepSheetRows：每个命中 sheet 带表头 + 命中行（去重 + 排序）
+	headerRow := 1 // 与原 finalize 一致
+	keepMap := make(map[string][]int, len(h.sheetRows))
+	for sn, rs := range h.sheetRows {
+		withHeader := append([]int{headerRow}, rs...)
+		keepMap[sn] = excelio.SortedUnique(withHeader)
+	}
+	if len(keepMap) == 0 {
+		return nil, nil
+	}
+
+	outPath := filepath.Join(m.outDir,
+		sanitizeFileName(m.prefix+"搜索结果")+"_"+m.ts+".xlsx")
+	if err := excelio.CloneAndExtractZipMulti(path, outPath, keepMap); err != nil {
+		return nil, err
+	}
+	m.imgCount += h.picCount
+	return []string{outPath}, nil
+}
+
 // Finalize 选 primary（命中行最多的源）后调 zip 手术一次性合并。
 func (m *mergedWriter) Finalize() ([]string, error) {
 	return m.finalize(nil, nil)
@@ -88,6 +148,15 @@ func (m *mergedWriter) finalize(ctx context.Context, emitter core.EventEmitter) 
 	// 选了 merged 且涉及 CSV 就接受这一点，需要保真请用 per_source。
 	if m.hasCSVSource() {
 		return m.finalizeStreaming(ctx, emitter)
+	}
+
+	// 单源多 sheet 命中时走直通：保留该源所有命中的 sheet（不 merge），
+	// 避免：
+	//   1) 数据丢失 —— 原逻辑只选 bestSheet，其他 sheet 的命中行被吞
+	//   2) Excel "部分内容有问题" —— 跨 sheet 公式（如 "=年级统计!A1"）和
+	//      跨 sheet 数据验证 在其他 sheet 被删后悬空引用
+	if path, hit := m.singleSourceHit(); hit != nil {
+		return m.finalizeSingleSource(ctx, emitter, path, hit)
 	}
 
 	// 按“在某个 sheet 里命中行最多”选 primary；同时记下每个源作代的 sheet。
