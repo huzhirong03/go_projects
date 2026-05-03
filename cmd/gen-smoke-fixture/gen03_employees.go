@@ -117,32 +117,102 @@ func gen03_EmployeesWithPhotos(dir string) error {
 	return f.SaveAs(path)
 }
 
-// makeAvatar 生成一张 36x36 的小头像，单色填充 + 中央圆形点缀。
-// 体积控制在 ~150-300B，2 万张总共 ~3-6 MB。
+// makeAvatar 生成一张 64x64 的"默认头像"风格图：
+//   - 柔和单色圆形背景（参数 r/g/b 控制色调）
+//   - 中央白色头部剪影（圆形头 + 梯形肩膀）
+//
+// 看着像 GitHub / Slack / 钉钉的默认头像，比单色块自然得多。
+//
+// 体积控制在 ~300-500B，2 万张总共约 6-10 MB。
 func makeAvatar(r, g, b uint8) []byte {
-	const size = 36
+	const size = 64
 	img := image.NewRGBA(image.Rect(0, 0, size, size))
-	bg := color.RGBA{R: r, G: g, B: b, A: 255}
-	fg := color.RGBA{R: 255 - r/2, G: 255 - g/2, B: 255 - b/2, A: 255}
 
-	// 背景
+	// 1) 圆形背景（柔和单色，外圈淡边）
+	bg := softenColor(color.RGBA{R: r, G: g, B: b, A: 255})
+	bgEdge := darkenColor(bg, 0.1)
+	transparent := color.RGBA{R: 245, G: 247, B: 250, A: 255} // 圆外用浅灰，看着像卡片背景
+	cx, cy := size/2, size/2
+	bgRad := size / 2 // 几乎填满
+	bgEdgeRad := bgRad - 1
 	for y := 0; y < size; y++ {
 		for x := 0; x < size; x++ {
-			img.Set(x, y, bg)
+			dx, dy := x-cx, y-cy
+			d2 := dx*dx + dy*dy
+			switch {
+			case d2 < bgEdgeRad*bgEdgeRad:
+				img.Set(x, y, bg)
+			case d2 < bgRad*bgRad:
+				img.Set(x, y, bgEdge)
+			default:
+				img.Set(x, y, transparent)
+			}
 		}
 	}
-	// 中央圆点
-	cx, cy, rad := size/2, size/2, size/3
-	r2 := rad * rad
-	for y := cy - rad; y <= cy+rad; y++ {
-		for x := cx - rad; x <= cx+rad; x++ {
-			dx, dy := x-cx, y-cy
-			if dx*dx+dy*dy <= r2 {
+
+	// 2) 头部（白色实心圆，居中偏上）
+	fg := color.RGBA{R: 255, G: 255, B: 255, A: 235}
+	headCX, headCY, headR := cx, cy-size/8, size/5
+	headR2 := headR * headR
+	for y := headCY - headR; y <= headCY+headR; y++ {
+		for x := headCX - headR; x <= headCX+headR; x++ {
+			dx, dy := x-headCX, y-headCY
+			if dx*dx+dy*dy <= headR2 {
 				img.Set(x, y, fg)
 			}
 		}
 	}
+
+	// 3) 肩膀（白色梯形：下宽上窄，半圆收口在底部）
+	shoulderTopY := headCY + headR + 2
+	shoulderBotY := size - 4
+	for y := shoulderTopY; y < shoulderBotY; y++ {
+		// 梯形左右宽度按 y 线性插值
+		t := float64(y-shoulderTopY) / float64(shoulderBotY-shoulderTopY)
+		halfW := int(float64(size/8) + t*float64(size/3))
+		// 圆角处理：在最底部把宽度收一点
+		if y > shoulderBotY-3 {
+			halfW = halfW - (y - (shoulderBotY - 3))
+		}
+		x0 := cx - halfW
+		x1 := cx + halfW
+		if x0 < 1 {
+			x0 = 1
+		}
+		if x1 > size-1 {
+			x1 = size - 1
+		}
+		for x := x0; x < x1; x++ {
+			// 还要在背景圆内
+			dx, dy := x-cx, y-cy
+			if dx*dx+dy*dy < bgEdgeRad*bgEdgeRad {
+				img.Set(x, y, fg)
+			}
+		}
+	}
+
 	var buf bytes.Buffer
 	_ = png.Encode(&buf, img)
 	return buf.Bytes()
+}
+
+// softenColor 把过于鲜艳的颜色调和向白色靠拢，让头像背景更柔和不刺眼。
+func softenColor(c color.RGBA) color.RGBA {
+	const t = 0.25 // 25% 向白色混
+	return color.RGBA{
+		R: uint8(float64(c.R)*(1-t) + 255*t),
+		G: uint8(float64(c.G)*(1-t) + 255*t),
+		B: uint8(float64(c.B)*(1-t) + 255*t),
+		A: 255,
+	}
+}
+
+// darkenColor 把颜色向黑色靠拢一点，用于圆形外圈。
+func darkenColor(c color.RGBA, t float64) color.RGBA {
+	return color.RGBA{
+		R: uint8(float64(c.R) * (1 - t)),
+		G: uint8(float64(c.G) * (1 - t)),
+		B: uint8(float64(c.B) * (1 - t)),
+		A: 255,
+	}
 }
