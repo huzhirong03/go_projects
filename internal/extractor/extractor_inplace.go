@@ -18,6 +18,7 @@ import (
 
 	"excel-master/internal/core"
 	"excel-master/internal/excelio"
+	"excel-master/internal/filter"
 	"excel-master/internal/matcher"
 	"excel-master/internal/pipeline"
 )
@@ -59,7 +60,17 @@ func extractInplace(
 			Stage: "scanning", Done: int64(fi), Total: total,
 			Message: fs.File.Path + " [" + fs.File.SheetName + "]",
 		})
-		sheetHits, matched, err := scanHitsForInplace(ctx, &fs, eng, unifiedSearchCols, task, emitter)
+		// 高级筛选编译（inplace 是单文件路径，但保持跟批量提取一致的处理：
+		// 缺失列直接报硬错误而非"跳过文件"——单文件下"跳过"等于整个任务空跑）。
+		flt, missing, ferr := buildFilter(task.AdvancedFilter, fs.File.Headers)
+		if ferr != nil {
+			return nil, core.Wrap("FILTER_COMPILE_FAILED", "高级筛选编译失败", ferr)
+		}
+		if len(missing) > 0 {
+			emitter.Log(core.LogWarn, fmt.Sprintf("[%s / %s] 高级筛选列缺失 %v",
+				fs.File.Path, fs.File.SheetName, missing))
+		}
+		sheetHits, matched, err := scanHitsForInplace(ctx, &fs, eng, unifiedSearchCols, task, flt, emitter)
 		if err != nil {
 			return nil, err
 		}
@@ -245,9 +256,11 @@ func buildInplaceSheetName(prefix, label, sourceSheet string, multiSheet bool) s
 
 // scanHitsForInplace 流式扫描单个 (file, sheet)，返回 keyword -> []rowNum 和总命中数。
 // 文件占用时弹 retry/skip/cancel；skipped 返回 (nil, 0, nil)。
+//
+// flt：编译好的高级筛选；nil/IsZero 表示无筛选，关键词命中行直接计入。
 func scanHitsForInplace(
 	ctx context.Context, fs *FileSchema, eng *matcher.Engine,
-	unifiedSearchCols []int, task core.ExtractTask, emitter core.EventEmitter,
+	unifiedSearchCols []int, task core.ExtractTask, flt *filter.Filter, emitter core.EventEmitter,
 ) (map[string][]int, int, error) {
 	var r *excelio.Reader
 	var err error
@@ -302,6 +315,10 @@ func scanHitsForInplace(
 		}
 		kw := eng.MatchRow(cells, fileSearchCols)
 		if kw == "" {
+			continue
+		}
+		// 高级筛选：关键词命中后立即应用，未通过的行不计入 inplace 写回。
+		if !flt.Apply(cells) {
 			continue
 		}
 		hits[kw] = append(hits[kw], it.RowNum())

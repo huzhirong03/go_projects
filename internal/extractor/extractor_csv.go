@@ -7,6 +7,7 @@ import (
 
 	"excel-master/internal/core"
 	"excel-master/internal/excelio"
+	"excel-master/internal/filter"
 	"excel-master/internal/matcher"
 	"excel-master/internal/pipeline"
 )
@@ -23,6 +24,7 @@ func processCSVFile(
 	unifiedSearchCols []int,
 	task core.ExtractTask,
 	ow OutputWriter,
+	flt *filter.Filter,
 	emitter core.EventEmitter,
 ) (int, bool, error) {
 	// 1) 打开（含文件占用 retry/skip/cancel）
@@ -62,6 +64,10 @@ func processCSVFile(
 		cells := r.Record()
 		kw := eng.MatchRow(cells, fileSearchCols)
 		if kw == "" {
+			continue
+		}
+		// 高级筛选：关键词命中后立即应用，未通过的行不会写入下游。
+		if !flt.Apply(cells) {
 			continue
 		}
 		// CSV 无公式，传 nil；按 schema 列对齐

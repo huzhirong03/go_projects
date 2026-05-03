@@ -7,6 +7,7 @@ import (
 
 	"excel-master/internal/core"
 	"excel-master/internal/excelio"
+	"excel-master/internal/filter"
 	"excel-master/internal/matcher"
 	"excel-master/internal/pipeline"
 )
@@ -108,13 +109,29 @@ func ExtractUnits(
 			Message: fs.File.Path + " [" + fs.File.SheetName + "]",
 		})
 
+		// 高级筛选按文件编译（headers 可能因文件而异）。
+		decision, ferr := buildFilterForFile(task.AdvancedFilter, &fs)
+		if ferr != nil {
+			return nil, core.Wrap("FILTER_COMPILE_FAILED", "高级筛选编译失败", ferr)
+		}
+		if decision.SkipReason != "" {
+			emitter.Log(core.LogWarn, decision.SkipReason)
+			skippedPaths[fs.File.Path] = true
+			continue
+		}
+		if len(decision.PartialMissing) > 0 {
+			emitter.Log(core.LogWarn, fmt.Sprintf(
+				"[%s / %s] 部分高级筛选列缺失 %v，仅用现有条件继续",
+				fs.File.Path, fs.File.SheetName, decision.PartialMissing))
+		}
+
 		var matched int
 		var skipped bool
 		switch core.DetectSourceKind(fs.File.Path) {
 		case core.SourceCSV:
-			matched, skipped, err = processCSVFile(ctx, &fs, schema, eng, unifiedSearchCols, task, ow, emitter)
+			matched, skipped, err = processCSVFile(ctx, &fs, schema, eng, unifiedSearchCols, task, ow, decision.Filter, emitter)
 		default:
-			matched, skipped, err = processFile(ctx, &fs, schema, eng, unifiedSearchCols, task, ow, emitter)
+			matched, skipped, err = processFile(ctx, &fs, schema, eng, unifiedSearchCols, task, ow, decision.Filter, emitter)
 		}
 		if err != nil {
 			return nil, err
@@ -150,6 +167,9 @@ func ExtractUnits(
 }
 
 // processFile 处理单个源文件：打开 → 构图片索引 → 流式行迭代 → 命中派发。
+//
+// flt：编译好的高级筛选；nil 或 IsZero 表示"无筛选"，所有命中行直接通过。
+// 关键词命中后会立即跑 flt.Apply(cells)，未通过的行不会触发图片加载/EmitRow。
 func processFile(
 	ctx context.Context,
 	fs *FileSchema,
@@ -158,6 +178,7 @@ func processFile(
 	unifiedSearchCols []int,
 	task core.ExtractTask,
 	ow OutputWriter,
+	flt *filter.Filter,
 	emitter core.EventEmitter,
 ) (int, bool, error) {
 	var r *excelio.Reader
@@ -259,6 +280,11 @@ func processFile(
 		}
 		kw := eng.MatchRow(cells, fileSearchCols)
 		if kw == "" {
+			continue
+		}
+		// 高级筛选：关键词命中后立即应用，未通过的行不会触发下游公式查询/图片加载/EmitRow。
+		// flt 为 nil 或 IsZero 时 Apply 内部短路返回 true。
+		if !flt.Apply(cells) {
 			continue
 		}
 
