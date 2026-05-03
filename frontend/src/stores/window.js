@@ -2,7 +2,7 @@
 // 状态时保存。背景：在最大化或最小化状态下 WindowGetSize 可能返回屏幕全尺寸
 // 或 0，存进去后下次 SetSize 会让窗口跑屏幕外，并破坏最大化按钮行为。
 import {
-    WindowSetSize, WindowGetSize, WindowIsNormal,
+    WindowSetSize, WindowGetSize, WindowIsNormal, WindowCenter,
 } from '../../wailsjs/runtime/runtime'
 import { getViewConfig, saveViewConfig } from './config.js'
 
@@ -20,13 +20,18 @@ function clamp(n, lo, hi) {
     return Math.max(lo, Math.min(hi, Math.round(n)))
 }
 
-/** 应用上次保存的窗口尺寸。仅恢复 size，不恢复 position（避免多显示器/异常坐标）。 */
+/** 应用上次保存的窗口尺寸。仅恢复 size，不恢复 position（避免多显示器/异常坐标）。
+ *  关键：SetSize 会保持左上角不变，结果是窗口"长大/缩小"而中心偏移。
+ *  所以 SetSize 之后必须再 Center 一次，否则启动位置永远跟我们 Go 端 domReady
+ *  的居中冲突（前端晚 ~12ms 调用，会盖掉 Go 端的居中）。 */
 export async function restoreWindowState() {
     try {
         const saved = await getViewConfig(VIEW_KEY)
         const w = clamp(saved.width, MIN_W, maxW())
         const h = clamp(saved.height, MIN_H, maxH())
         if (w && h) WindowSetSize(w, h)
+        // 不管有没有 SetSize，都做一次 Center：默认尺寸下也保证居中
+        WindowCenter()
     } catch (e) {
         console.warn('restoreWindowState failed:', e)
     }
