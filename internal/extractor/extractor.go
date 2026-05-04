@@ -264,6 +264,20 @@ func processFile(
 
 	fileSearchCols := fs.FileSearchColumns(unifiedSearchCols)
 
+	// 阶段 1.5：sheet 级公式预检。
+	// fixture 01 (10万行学生表) 完全没公式，但原代码对每命中行仍跑 14 次 excelize.CellFormula，
+	// 命中 14286 行时累计 20 万次浪费。这里一次性扫 zip 里的 sheetN.xml（流式读，遇到 <f>
+	// 立即退出），把"是否有公式"压到一个 bool。
+	// 探测失败（zip 损坏 / 不标准结构）时 hasFormulas=true 保守走原路径，公式零回归。
+	tProbe := time.Now()
+	hasFormulas, probeErr := r.SheetHasFormulas(fs.File.SheetName)
+	if probeErr != nil {
+		emitter.Log(core.LogWarn, "公式预检失败，按\"含公式\"保守处理: "+probeErr.Error())
+		hasFormulas = true
+	}
+	emitter.Log(core.LogInfo, fmt.Sprintf("[TIMING] 公式预检 %v: has=%v",
+		time.Since(tProbe).Round(time.Millisecond), hasFormulas))
+
 	// 阶段 2：流式行迭代，收集命中行到内存（不加载图片字节）。
 	it, err := r.Iterate(fs.File.SheetName)
 	if err != nil {
@@ -313,8 +327,13 @@ func processFile(
 			continue
 		}
 
-		// V1.1：仅对命中行做公式查询（昂贵但只在命中时触发，性能影响有限）。
-		formulas := readRowFormulas(r, fs.File.SheetName, it.RowNum(), len(cells))
+		// V1.2：仅在 sheet 确实含公式时才查 cell 公式。fixture 01（无公式 sheet）
+		// 命中 14286 行时跳过 20 万次 excelize.CellFormula 调用，省 10-40 秒。
+		// fixture 02（含公式 sheet）保持原行为，公式零回归。
+		var formulas []string
+		if hasFormulas {
+			formulas = readRowFormulas(r, fs.File.SheetName, it.RowNum(), len(cells))
+		}
 		values := fs.AlignRowWithFormulas(cells, formulas, len(schema.Columns))
 		height, _, _ := r.RowHeight(fs.File.SheetName, it.RowNum())
 

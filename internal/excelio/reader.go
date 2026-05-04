@@ -56,6 +56,10 @@ func openOptions(path string) excelize.Options {
 type Reader struct {
 	f    *excelize.File
 	path string
+	// formulaProbeCache 缓存 SheetHasFormulas 的结果。同一 Reader 上同一 sheet 只扫一次
+	// zip 里的 sheetN.xml；没有公式的 sheet 在 extractor 扫描时会跳过整个 readRowFormulas
+	// 循环，fixture 01 (100k 行，14 命中列) 约省 10-40 秒的 excelize.CellFormula 调用。
+	formulaProbeCache map[string]bool
 }
 
 // Open 以只读模式打开一个 xlsx 文件。
