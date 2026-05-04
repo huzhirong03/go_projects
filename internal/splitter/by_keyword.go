@@ -42,22 +42,25 @@ func SplitByKeyword(ctx context.Context, task core.SplitTask, emitter core.Event
 
 	// 2. 翻译为 ExtractTask 并复用 extractor.ExtractUnits
 	et := core.ExtractTask{
-		FolderPath:     "", // ExtractUnits 不要求
-		Keywords:       task.Keywords,
-		MatchMode:      task.MatchMode,
-		SearchAllCols:  task.SearchAllCols,
-		SearchColumns:  task.SearchColumns,
-		Output:         task.Output,
-		OutputDir:      task.OutputDir,
-		HeaderRow:      task.HeaderRow,
-		PreserveImages: task.PreserveImages,
-		SheetNames:     task.SheetNames,
-		CSVEncoding:    task.CSVEncoding,
-		CSVDelimiter:   task.CSVDelimiter,
-		OutputTarget:   task.OutputTarget,
-		BackupSource:   task.BackupSource,
-		AdvancedFilter: task.AdvancedFilter,
-		DedupColumn:    task.DedupColumn, // V1.1+ 透传给 extractor，由 writer 按策略分桶去重
+		FolderPath:       "", // ExtractUnits 不要求
+		Keywords:         task.Keywords,
+		MatchMode:        task.MatchMode,
+		SearchAllCols:    task.SearchAllCols,
+		SearchColumns:    task.SearchColumns,
+		Output:           task.Output,
+		OutputDir:        task.OutputDir,
+		HeaderRow:        task.HeaderRow,
+		PreserveImages:   task.PreserveImages,
+		SheetNames:       task.SheetNames,
+		CSVEncoding:      task.CSVEncoding,
+		CSVDelimiter:     task.CSVDelimiter,
+		OutputTarget:     task.OutputTarget,
+		BackupSource:     task.BackupSource,
+		AdvancedFilter:   task.AdvancedFilter,
+		DedupColumn:      task.DedupColumn,      // V1.1+ 透传给 extractor，由 writer 按策略分桶去重
+		DedupColumns:     task.DedupColumns,     // V1.2+ 多列组合
+		DedupIgnoreSpace: task.DedupIgnoreSpace, // V1.2+ 忽略前后空白
+		DedupIgnoreCase:  task.DedupIgnoreCase,  // V1.2+ 忽略大小写
 	}
 	er, err := extractor.ExtractUnits(ctx, et, units, emitter)
 	if err != nil {

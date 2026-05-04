@@ -26,15 +26,18 @@ import (
 
 func main() {
 	var (
-		src        = flag.String("src", "", "源文件夹路径（必填）")
-		kw         = flag.String("kw", "", "关键词，逗号/空格/顿号分隔（必填）")
-		strategy   = flag.String("strategy", "per_keyword", "输出策略：per_keyword | merged | per_source")
-		outDir     = flag.String("out", "", "输出目录（默认 <src>/提取结果_<时间戳>）")
-		headerRow  = flag.Int("header", 1, "表头行号（1-based，0 表示无表头）")
-		noImage    = flag.Bool("no-image", false, "不保留图片（加快速度）")
-		searchCols = flag.String("cols", "", "限定搜索列名（逗号分隔，默认全列搜索）")
-		modeStr    = flag.String("mode", "all", "匹配模式：exact | contains | all（默认两种全开）")
-		dedupCol   = flag.String("dedup", "", "去重列名（空 = 不去重，按该列 strict 比较去重，保留首次出现）")
+		src              = flag.String("src", "", "源文件夹路径（必填）")
+		kw               = flag.String("kw", "", "关键词，逗号/空格/顿号分隔（必填）")
+		strategy         = flag.String("strategy", "per_keyword", "输出策略：per_keyword | merged | per_source")
+		outDir           = flag.String("out", "", "输出目录（默认 <src>/提取结果_<时间戳>）")
+		headerRow        = flag.Int("header", 1, "表头行号（1-based，0 表示无表头）")
+		noImage          = flag.Bool("no-image", false, "不保留图片（加快速度）")
+		searchCols       = flag.String("cols", "", "限定搜索列名（逗号分隔，默认全列搜索）")
+		modeStr          = flag.String("mode", "all", "匹配模式：exact | contains | all（默认两种全开）")
+		dedupCol         = flag.String("dedup", "", "去重列名（空 = 不去重，按该列 strict 比较去重，保留首次出现）")
+		dedupCols        = flag.String("dedup-cols", "", "多列组合去重，逗号分隔（最多 3 列，与 -dedup 可共存）")
+		dedupIgnoreSpace = flag.Bool("dedup-ignore-space", false, "去重时忽略列值前后空白")
+		dedupIgnoreCase  = flag.Bool("dedup-ignore-case", false, "去重时忽略大小写（英文生效）")
 	)
 	flag.Parse()
 
@@ -75,17 +78,29 @@ func main() {
 		}
 	}
 
+	var multiCols []string
+	if strings.TrimSpace(*dedupCols) != "" {
+		for _, c := range strings.Split(*dedupCols, ",") {
+			if c = strings.TrimSpace(c); c != "" {
+				multiCols = append(multiCols, c)
+			}
+		}
+	}
+
 	task := core.ExtractTask{
-		FolderPath:     *src,
-		Keywords:       keywords,
-		MatchMode:      mode,
-		SearchAllCols:  len(cols) == 0,
-		SearchColumns:  cols,
-		Output:         output,
-		OutputDir:      finalOut,
-		HeaderRow:      *headerRow,
-		PreserveImages: !*noImage,
-		DedupColumn:    strings.TrimSpace(*dedupCol),
+		FolderPath:       *src,
+		Keywords:         keywords,
+		MatchMode:        mode,
+		SearchAllCols:    len(cols) == 0,
+		SearchColumns:    cols,
+		Output:           output,
+		OutputDir:        finalOut,
+		HeaderRow:        *headerRow,
+		PreserveImages:   !*noImage,
+		DedupColumn:      strings.TrimSpace(*dedupCol),
+		DedupColumns:     multiCols,
+		DedupIgnoreSpace: *dedupIgnoreSpace,
+		DedupIgnoreCase:  *dedupIgnoreCase,
 	}
 
 	// 支持 Ctrl+C 取消
@@ -107,8 +122,9 @@ func main() {
 	fmt.Printf("  输出策略   : %s\n", task.Output)
 	fmt.Printf("  输出目录   : %s\n", task.OutputDir)
 	fmt.Printf("  保留图片   : %v\n", task.PreserveImages)
-	if task.DedupColumn != "" {
-		fmt.Printf("  去重列     : %s\n", task.DedupColumn)
+	if task.DedupColumn != "" || len(task.DedupColumns) > 0 {
+		fmt.Printf("  去重列     : single=%q multi=%v ignoreSpace=%v ignoreCase=%v\n",
+			task.DedupColumn, task.DedupColumns, task.DedupIgnoreSpace, task.DedupIgnoreCase)
 	}
 	fmt.Println("---")
 

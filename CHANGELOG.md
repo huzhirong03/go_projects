@@ -11,6 +11,33 @@
 
 ---
 
+## [v1.2.0] - 2026-05-05
+
+### 新增 (Added)
+
+- **多列组合去重**：去重列从 1 个扩展到最多 3 个组合键（品牌+型号+批次这样的多维度唯一性）
+  - UI 提供 3 个列下拉（列 1 必填，列 2/3 可选）；动态提示会把组合列串成「A+B+C」列组合
+  - 后端用 `\x01` 控制字符拼接列值做 key，Excel 单元格不可能含该字符，理论零冲突
+  - 任一列为空 → 整行不参与去重（跟单列语义一致，避免把"空缺未填"误判为一组）
+  - CLI `extract-cli` 新增 `-dedup-cols` 参数（逗号分隔列名）
+- **归一化开关**：UI 两个 checkbox，去重时统一对所有选定列生效
+  - ✅ **忽略前后空白**：`strings.TrimSpace`（只去首尾，不去中间）—— 解决手动录入带空格的常见问题
+  - ✅ **忽略大小写**：`strings.ToLower`（英文字母生效，中文 CJK unicode 无变化）
+  - CLI 新增 `-dedup-ignore-space` / `-dedup-ignore-case` flag
+
+### 修改 (Changed)
+
+- Deduper 内部重构：`newDeduper(col string)` → `newDeduper(cfg dedupConfig)`；所有 writer 构造函数同步升级。对外前后端 API 完全向后兼容，V1.1 的 `DedupColumn` 单列字段仍正常工作
+- Service 层新增 `sanitizeDedupColumns` 辅助函数：前端列表先 Trim + 过滤空值，再下沉到 extractor 的 `buildDedupConfig` 做去重合并和 3 列截断
+
+### 测试 (Tests)
+
+- Deduper 单元测 + buildDedupConfig 单元测共 15 个 case（原 7 个迁移 + V1.2 新增 8 个）
+- Extract 集成测新增 5 个 V1.2 场景（多列严格/忽略大小写/同时忽略空白大小写/V1.1 向后兼容/两代字段共用）
+- 7 个内部 Go 包全绿
+
+---
+
 ## [v1.1.0] - 2026-05-04
 
 ### 新增 (Added)

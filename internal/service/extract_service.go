@@ -207,24 +207,47 @@ func buildExtractTask(req ExtractRequest) (core.ExtractTask, error) {
 		headerRow = 1 // 默认首行表头
 	}
 	return core.ExtractTask{
-		FolderPath:     req.FolderPath,
-		Keywords:       keywords,
-		MatchMode:      mode,
-		SearchAllCols:  req.SearchAllCols || len(req.SearchColumns) == 0,
-		SearchColumns:  req.SearchColumns,
-		Output:         strategy,
-		OutputDir:      req.OutputDir,
-		HeaderRow:      headerRow,
-		PreserveImages: req.PreserveImages,
-		SheetNames:     req.SheetNames,
-		FilenamePrefix: req.FilenamePrefix,
-		CSVEncoding:    req.CSVEncoding,
-		CSVDelimiter:   req.CSVDelimiter,
-		OutputTarget:   parseOutputTarget(req.OutputTarget),
-		BackupSource:   req.BackupSource,
-		AdvancedFilter: advFilter,
-		DedupColumn:    strings.TrimSpace(req.DedupColumn),
+		FolderPath:       req.FolderPath,
+		Keywords:         keywords,
+		MatchMode:        mode,
+		SearchAllCols:    req.SearchAllCols || len(req.SearchColumns) == 0,
+		SearchColumns:    req.SearchColumns,
+		Output:           strategy,
+		OutputDir:        req.OutputDir,
+		HeaderRow:        headerRow,
+		PreserveImages:   req.PreserveImages,
+		SheetNames:       req.SheetNames,
+		FilenamePrefix:   req.FilenamePrefix,
+		CSVEncoding:      req.CSVEncoding,
+		CSVDelimiter:     req.CSVDelimiter,
+		OutputTarget:     parseOutputTarget(req.OutputTarget),
+		BackupSource:     req.BackupSource,
+		AdvancedFilter:   advFilter,
+		DedupColumn:      strings.TrimSpace(req.DedupColumn),
+		DedupColumns:     sanitizeDedupColumns(req.DedupColumns),
+		DedupIgnoreSpace: req.DedupIgnoreSpace,
+		DedupIgnoreCase:  req.DedupIgnoreCase,
 	}, nil
+}
+
+// sanitizeDedupColumns 对前端传来的多列列表做 trim + 过滤空值，保持顺序。
+// 不在这里截断到 3 列（extractor 的 buildDedupConfig 会统一处理，服务层保持透明）。
+func sanitizeDedupColumns(cols []string) []string {
+	if len(cols) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(cols))
+	for _, c := range cols {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			continue
+		}
+		out = append(out, c)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // parseOutputTarget 把前端字符串翻译成 core.OutputTarget，未知值一律回退为 new_files。

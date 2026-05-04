@@ -40,9 +40,15 @@ const defaults = {
     // 高级筛选 V1.5+：仅 by_keyword 模式生效
     advancedFilter: { mode: FILTER_MODE_ALL, conditions: [] },
     advancedFilterPresets: [],
-    // 去重 V1.1+：仅 by_keyword 模式生效。其他拆分模式 UI 隐藏，后端也会在 buildSplitTask 里忽略。
+    // 去重 V1.1+ / V1.2+：仅 by_keyword 模式生效。
+    //   dedupColumn：主列（列 1）；dedupColumn2/3：次要列。
+    //   dedupIgnoreSpace/Case：归一化开关（V1.2）。
     dedupEnabled: false,
     dedupColumn: '',
+    dedupColumn2: '',
+    dedupColumn3: '',
+    dedupIgnoreSpace: false,
+    dedupIgnoreCase: false,
     foldPaths: false,
     foldMode: false,
 }
@@ -116,14 +122,39 @@ const activeFilterCount = computed(() => countActiveConditions(form.advancedFilt
 const hasActiveFilter = computed(() => activeFilterCount.value > 0)
 
 // --- 去重（仅 by_keyword 模式） ---
+// effectiveDedupColumns：按 UI 顺序收集有效列，去重去空，submit 和提示共用。
+const effectiveDedupColumns = computed(() => {
+    if (!form.dedupEnabled) return []
+    const raw = [form.dedupColumn, form.dedupColumn2, form.dedupColumn3]
+    const seen = new Set()
+    const out = []
+    for (const c of raw) {
+        const t = (c || '').trim()
+        if (!t || seen.has(t)) continue
+        seen.add(t)
+        out.push(t)
+    }
+    return out
+})
+const dedupHasDuplicate = computed(() => {
+    if (!form.dedupEnabled) return false
+    const raw = [form.dedupColumn, form.dedupColumn2, form.dedupColumn3].filter(c => (c || '').trim())
+    return new Set(raw).size !== raw.length
+})
+const dedupColsDesc = computed(() => {
+    const cols = effectiveDedupColumns.value
+    if (cols.length === 0) return ''
+    if (cols.length === 1) return `「${cols[0]}」列`
+    return `「${cols.join(' + ')}」列组合`
+})
 // dedupHint 根据输出策略动态提示去重范围。
 const dedupHint = computed(() => {
-    if (!form.dedupEnabled || !form.dedupColumn) return ''
-    const col = form.dedupColumn
+    const desc = dedupColsDesc.value
+    if (!desc) return ''
     if (form.strategy === OUTPUT_PER_KEYWORD) {
-        return `每个关键词的输出文件内独立按「${col}」列去重`
+        return `每个关键词的输出文件内独立按${desc}去重`
     }
-    return `合并后的输出文件内按「${col}」列去重`
+    return `合并后的输出文件内按${desc}去重`
 })
 // 没关键词但有筛选 → per_keyword 没意义，自动降级 merged
 const filterOnlyMode = computed(() =>
@@ -257,9 +288,12 @@ async function submit() {
         if (form.keywordsRaw.trim() && !form.exact && !form.contains) {
             return showToast('请至少选择一种匹配模式', 'warn')
         }
-        // 去重启用但未选列 → 拦截
+        // 去重启用但未选任何列 → 拦截
         if (form.dedupEnabled && !form.dedupColumn) {
-            return showToast('启用去重时必须选择一列作为去重依据', 'warn')
+            return showToast('启用去重时必须选择至少一列作为去重依据', 'warn')
+        }
+        if (form.dedupEnabled && dedupHasDuplicate.value) {
+            return showToast('去重多列组合里不能重复选择同一列', 'warn')
         }
     }
 
@@ -287,8 +321,11 @@ async function submit() {
             outputTarget: isInplace.value ? 'inplace_sheets' : 'new_files',
             backupSource: isInplace.value && form.backupSource,
             advancedFilter: buildAdvancedFilterDTO(),
-            // 仅 by_keyword 模式 且 已启用去重 时才传值；其他场景传空串，后端零回归
+            // 仅 by_keyword 模式 且 已启用去重 时才传值；其他场景传空/空数组/false，后端零回归
             dedupColumn: (form.mode === SPLIT_BY_KEYWORD && form.dedupEnabled) ? form.dedupColumn : '',
+            dedupColumns: (form.mode === SPLIT_BY_KEYWORD && form.dedupEnabled) ? effectiveDedupColumns.value : [],
+            dedupIgnoreSpace: form.mode === SPLIT_BY_KEYWORD && form.dedupEnabled && form.dedupIgnoreSpace,
+            dedupIgnoreCase: form.mode === SPLIT_BY_KEYWORD && form.dedupEnabled && form.dedupIgnoreCase,
         })
         startTask(handle.taskId)
         // 任务完成后由 watch(task.result/error) 自动滚到底部
@@ -449,31 +486,60 @@ async function submit() {
                         <summary class="adv-filter-summary">
                             <span class="chevron-sm" aria-hidden="true">▶</span>
                             <span class="adv-title">去重</span>
-                            <span v-if="form.dedupEnabled && form.dedupColumn" class="adv-badge"
+                            <span v-if="form.dedupEnabled && effectiveDedupColumns.length" class="adv-badge"
                                   :title="dedupHint">
-                                ✓ 按「{{ form.dedupColumn }}」去重
+                                ✓ 按{{ dedupColsDesc }}去重
                             </span>
                         </summary>
                         <div class="adv-filter-body">
                             <div class="field">
                                 <label class="keep-images">
                                     <input type="checkbox" v-model="form.dedupEnabled" />
-                                    启用去重（按指定列去重，保留首次出现的行）
+                                    启用去重（按指定列组合去重，保留首次出现的行）
                                 </label>
                             </div>
-                            <div v-if="form.dedupEnabled" class="field">
-                                <label class="field-label">去重列</label>
-                                <select v-model="form.dedupColumn" class="name-select">
-                                    <option value="">— 选择一列 —</option>
-                                    <option v-for="c in previewState.columns" :key="c" :value="c">{{ c }}</option>
-                                </select>
-                                <span v-if="!form.dedupColumn" class="field-hint" style="margin-left:10px;color:var(--warn,#d97706)">
-                                    必须选一列作为去重依据
-                                </span>
-                                <span v-else class="field-hint" style="margin-left:10px">
-                                    💡 {{ dedupHint }}
-                                </span>
-                            </div>
+                            <template v-if="form.dedupEnabled">
+                                <div class="field">
+                                    <label class="field-label">去重列 1</label>
+                                    <select v-model="form.dedupColumn" class="name-select">
+                                        <option value="">— 选择一列（必选）—</option>
+                                        <option v-for="c in previewState.columns" :key="c" :value="c">{{ c }}</option>
+                                    </select>
+                                    <span v-if="!form.dedupColumn" class="field-hint"
+                                          style="margin-left:10px;color:var(--warn,#d97706)">必须至少选一列</span>
+                                </div>
+                                <div class="field">
+                                    <label class="field-label">去重列 2</label>
+                                    <select v-model="form.dedupColumn2" class="name-select">
+                                        <option value="">— （可选）—</option>
+                                        <option v-for="c in previewState.columns" :key="c" :value="c">{{ c }}</option>
+                                    </select>
+                                </div>
+                                <div class="field">
+                                    <label class="field-label">去重列 3</label>
+                                    <select v-model="form.dedupColumn3" class="name-select">
+                                        <option value="">— （可选）—</option>
+                                        <option v-for="c in previewState.columns" :key="c" :value="c">{{ c }}</option>
+                                    </select>
+                                </div>
+                                <div v-if="dedupHasDuplicate" class="field">
+                                    <span class="field-hint" style="color:var(--warn,#d97706)">
+                                        ⚠ 同一列被选了多次，请避免重复。
+                                    </span>
+                                </div>
+                                <div class="field">
+                                    <label class="field-label">归一化</label>
+                                    <div class="inline-group">
+                                        <label><input type="checkbox" v-model="form.dedupIgnoreSpace" /> 忽略前后空白</label>
+                                        <label><input type="checkbox" v-model="form.dedupIgnoreCase" /> 忽略大小写</label>
+                                    </div>
+                                </div>
+                                <div v-if="dedupHint" class="field">
+                                    <span class="field-hint" style="color:var(--primary,#3b82f6)">
+                                        💡 {{ dedupHint }}
+                                    </span>
+                                </div>
+                            </template>
                             <div class="field">
                                 <span class="field-hint">
                                     想看重复值而不删除？用 Excel 「开始 → 条件格式 → 重复值」更方便。

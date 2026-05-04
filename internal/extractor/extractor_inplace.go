@@ -50,8 +50,9 @@ func extractInplace(
 
 	// 构造 deduper：inplace 是单文件路径，所有 sheet 共用同一 deduper 实例维持已见 key。
 	// Bind 的列名来源：用源文件第一个 sheet 的 headers（inplace 是单文件，同文件不同 sheet 的
-	// headers 可能不同但并不常见；本版简化使用第一个 sheet 的 headers）。找不到列时 deduper 自动 no-op。
-	dedup := newDeduper(task.DedupColumn)
+	// headers 可能不同但并不常见；本版简化使用第一个 sheet 的 headers）。任一列找不到时 deduper 自动 no-op。
+	dedupCfg := buildDedupConfig(task.DedupColumn, task.DedupColumns, task.DedupIgnoreSpace, task.DedupIgnoreCase)
+	dedup := newDeduper(dedupCfg)
 	if len(schema.Files) > 0 {
 		dedup.Bind(schema.Files[0].File.Headers)
 	}

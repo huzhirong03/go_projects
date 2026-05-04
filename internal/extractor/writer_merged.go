@@ -30,12 +30,12 @@ type mergedWriter struct {
 	ts       string
 }
 
-func newMergedWriter(outDir, sheet, prefix, dedupColumn string) *mergedWriter {
+func newMergedWriter(outDir, sheet, prefix string, dedupCfg dedupConfig) *mergedWriter {
 	_ = sheet // 不再需要预设“结果”底 sheet，名字从 primary 源文件继承
 	return &mergedWriter{
 		outDir: outDir,
 		prefix: prefix,
-		dedup:  newDeduper(dedupColumn),
+		dedup:  newDeduper(dedupCfg),
 		hits:   map[string]*perSourceHits{},
 		ts:     timestamp(),
 	}

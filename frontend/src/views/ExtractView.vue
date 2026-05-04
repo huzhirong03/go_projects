@@ -48,11 +48,18 @@ const defaults = {
     //   advancedFilterPresets: 用户保存的命名预设 [{name, mode, conditions}]
     advancedFilter: { mode: FILTER_MODE_ALL, conditions: [] },
     advancedFilterPresets: [],
-    // 去重（V1.1+）：未启用时 dedupColumn 不会被提交，保持后端零回归。
-    //   dedupEnabled: 仅 UI 层开关，未勾时 submit 直接传空串
-    //   dedupColumn:  去重列名，必须是源文件表头里存在的列
+    // 去重（V1.1+ / V1.2+）：未启用时不提交任何 dedup 字段，保持后端零回归。
+    //   dedupEnabled:      仅 UI 层开关
+    //   dedupColumn:       主列（列 1，必填）
+    //   dedupColumn2/3:    次要列（可选，构成多列组合去重 key）
+    //   dedupIgnoreSpace:  忽略前后空白
+    //   dedupIgnoreCase:   忽略大小写（英文生效）
     dedupEnabled: false,
     dedupColumn: '',
+    dedupColumn2: '',
+    dedupColumn3: '',
+    dedupIgnoreSpace: false,
+    dedupIgnoreCase: false,
     // 折叠状态（默认全展开，去重区块默认折叠避免占屏）
     foldPaths: false,
     foldKeywords: false,
@@ -102,25 +109,54 @@ const activeFilterCount = computed(() => countActiveConditions(form.advancedFilt
 const hasActiveFilter = computed(() => activeFilterCount.value > 0)
 
 // --- 去重 ---
-// dedupHint 根据当前策略动态显示去重范围说明，让用户清楚"会跨文件去重还是文件内去重"。
+// effectiveDedupColumns 返回实际参与去重的列名列表（按 UI 顺序，去重，过滤空值）。
+// submit 时打包为 dedupColumns；UI 上用于动态提示。
+const effectiveDedupColumns = computed(() => {
+    if (!form.dedupEnabled) return []
+    const raw = [form.dedupColumn, form.dedupColumn2, form.dedupColumn3]
+    const seen = new Set()
+    const out = []
+    for (const c of raw) {
+        const t = (c || '').trim()
+        if (!t || seen.has(t)) continue
+        seen.add(t)
+        out.push(t)
+    }
+    return out
+})
+// 检测：同一列被选多次（方便 UI 提示）。
+const dedupHasDuplicate = computed(() => {
+    if (!form.dedupEnabled) return false
+    const raw = [form.dedupColumn, form.dedupColumn2, form.dedupColumn3].filter(c => (c || '').trim())
+    return new Set(raw).size !== raw.length
+})
+// 描述文本：单列就叫「à xxxá」，多列串一串「à a+b+cá」。
+const dedupColsDesc = computed(() => {
+    const cols = effectiveDedupColumns.value
+    if (cols.length === 0) return ''
+    if (cols.length === 1) return `「${cols[0]}」列`
+    return `「${cols.join(' + ')}」列组合`
+})
+// dedupHint 根据当前策略动态显示去重范围说明。
 const dedupHint = computed(() => {
-    if (!form.dedupEnabled || !form.dedupColumn) return ''
-    const col = form.dedupColumn
+    const desc = dedupColsDesc.value
+    if (!desc) return ''
     switch (form.strategy) {
         case OUTPUT_MERGED:
-            return `所有文件合并后，按「${col}」列全局去重`
+            return `所有文件合并后，按${desc}全局去重`
         case OUTPUT_PER_KEYWORD:
-            return `每个关键词的输出文件内独立按「${col}」列去重`
+            return `每个关键词的输出文件内独立按${desc}去重`
         case OUTPUT_PER_SOURCE:
-            return `每个源文件的输出文件内独立按「${col}」列去重`
+            return `每个源文件的输出文件内独立按${desc}去重`
         default:
-            return `按「${col}」列去重，保留首次出现的行`
+            return `按${desc}去重，保留首次出现的行`
     }
 })
 // inplace 时也要给提示
 const dedupHintInplace = computed(() => {
-    if (!form.dedupEnabled || !form.dedupColumn) return ''
-    return `新 Sheet 内独立按「${form.dedupColumn}」列去重`
+    const desc = dedupColsDesc.value
+    if (!desc) return ''
+    return `新 Sheet 内独立按${desc}去重`
 })
 // 没关键词但有筛选 → per_keyword 没意义，自动降级 merged（UI 上 per_keyword 单选会灰掉）。
 const filterOnlyMode = computed(() => !form.keywordsRaw.trim() && hasActiveFilter.value)
@@ -314,9 +350,13 @@ async function submit() {
     if (previewState.sheets.length > 1 && form.sheetNames.length === 0) {
         return showToast('请至少勾选一个要处理的 Sheet', 'warn')
     }
-    // 去重启用但未选列 → 拦截
+    // 去重启用但未选列 → 拦截（列 1 必填）
     if (form.dedupEnabled && !form.dedupColumn) {
-        return showToast('启用去重时必须选择一列作为去重依据', 'warn')
+        return showToast('启用去重时必须选择至少一列作为去重依据', 'warn')
+    }
+    // 多列组合时禁止重复选同一列
+    if (form.dedupEnabled && dedupHasDuplicate.value) {
+        return showToast('去重多列组合里不能重复选择同一列', 'warn')
     }
 
     try {
@@ -341,8 +381,11 @@ async function submit() {
             outputTarget: isInplace.value ? 'inplace_sheets' : 'new_files',
             backupSource: isInplace.value && form.backupSource,
             advancedFilter: buildAdvancedFilterDTO(),
-            // 未启用时传空串，后端按零回归路径走
+            // 未启用时传空/空数组/false，后端按零回归路径走
             dedupColumn: form.dedupEnabled ? form.dedupColumn : '',
+            dedupColumns: form.dedupEnabled ? effectiveDedupColumns.value : [],
+            dedupIgnoreSpace: form.dedupEnabled && form.dedupIgnoreSpace,
+            dedupIgnoreCase: form.dedupEnabled && form.dedupIgnoreCase,
         })
         startTask(handle.taskId)
         // 注意：不在这里立刻滚动，结果还没生成滚下去也是空的。
@@ -405,33 +448,6 @@ async function submit() {
             </div>
         </Collapsible>
 
-        <Collapsible title="高级筛选" :open="advFilterOpen" @update:open="v => advFilterOpen = v">
-            <template #head-extra>
-                <span v-if="hasActiveFilter" class="adv-badge"
-                      :title="`${activeFilterCount} 个条件激活中`">
-                    ⚠ {{ activeFilterCount }} 个条件激活
-                </span>
-            </template>
-            <div class="adv-presets">
-                <span class="field-label" style="margin-right:8px">预设：</span>
-                <select v-model="presetSelected" class="name-select"
-                        @change="presetSelected && applyPreset(presetSelected)">
-                    <option value="">— 选择预设 —</option>
-                    <option v-for="p in form.advancedFilterPresets" :key="p.name" :value="p.name">{{ p.name }}</option>
-                </select>
-                <button v-if="!presetSaving" type="button" class="btn-mini" @click="startSavePreset">💾 另存为</button>
-                <button v-if="presetSelected" type="button" class="btn-mini btn-danger" @click="deletePreset">🗑 删除</button>
-                <template v-if="presetSaving">
-                    <input type="text" v-model="presetNewName" placeholder="预设名"
-                           class="name-input" style="width:160px"
-                           @keyup.enter="commitSavePreset" @keyup.esc="cancelSavePreset" />
-                    <button type="button" class="btn-mini btn-primary" @click="commitSavePreset">保存</button>
-                    <button type="button" class="btn-mini" @click="cancelSavePreset">取消</button>
-                </template>
-            </div>
-            <AdvancedFilter v-model="form.advancedFilter" :columns="previewState.columns" />
-        </Collapsible>
-
         <Collapsible title="数据范围" :open="!form.foldRange" @update:open="v => form.foldRange = !v">
             <div class="field">
                 <div class="label-row">
@@ -468,38 +484,96 @@ async function submit() {
 
         <Collapsible title="去重" :open="!form.foldDedup" @update:open="v => form.foldDedup = !v">
             <template #head-extra>
-                <span v-if="form.dedupEnabled && form.dedupColumn" class="adv-badge"
+                <span v-if="form.dedupEnabled && effectiveDedupColumns.length" class="adv-badge"
                       :title="isInplace ? dedupHintInplace : dedupHint">
-                    ✓ 按「{{ form.dedupColumn }}」去重
+                    ✓ 按{{ dedupColsDesc }}去重
                 </span>
             </template>
             <div class="field">
                 <label class="keep-images">
                     <input type="checkbox" v-model="form.dedupEnabled" />
-                    启用去重（按指定列去重，保留首次出现的行）
+                    启用去重（按指定列组合去重，保留首次出现的行）
                 </label>
             </div>
-            <div v-if="form.dedupEnabled" class="field">
-                <label class="field-label">去重列</label>
-                <select v-model="form.dedupColumn" class="name-select">
-                    <option value="">— 选择一列 —</option>
-                    <option v-for="c in previewState.columns" :key="c" :value="c">{{ c }}</option>
-                </select>
-                <span v-if="!form.dedupColumn" class="field-hint" style="margin-left:10px;color:var(--warn,#d97706)">
-                    必须选一列作为去重依据
-                </span>
-                <span v-else-if="isInplace" class="field-hint" style="margin-left:10px">
-                    💡 {{ dedupHintInplace }}
-                </span>
-                <span v-else class="field-hint" style="margin-left:10px">
-                    💡 {{ dedupHint }}
-                </span>
-            </div>
+            <template v-if="form.dedupEnabled">
+                <div class="field">
+                    <label class="field-label">去重列 1</label>
+                    <select v-model="form.dedupColumn" class="name-select">
+                        <option value="">— 选择一列（必选）—</option>
+                        <option v-for="c in previewState.columns" :key="c" :value="c">{{ c }}</option>
+                    </select>
+                    <span v-if="!form.dedupColumn" class="field-hint"
+                          style="margin-left:10px;color:var(--warn,#d97706)">
+                        必须至少选一列
+                    </span>
+                </div>
+                <div class="field">
+                    <label class="field-label">去重列 2</label>
+                    <select v-model="form.dedupColumn2" class="name-select">
+                        <option value="">— （可选）—</option>
+                        <option v-for="c in previewState.columns" :key="c" :value="c">{{ c }}</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label class="field-label">去重列 3</label>
+                    <select v-model="form.dedupColumn3" class="name-select">
+                        <option value="">— （可选）—</option>
+                        <option v-for="c in previewState.columns" :key="c" :value="c">{{ c }}</option>
+                    </select>
+                </div>
+                <div v-if="dedupHasDuplicate" class="field">
+                    <span class="field-hint" style="color:var(--warn,#d97706)">
+                        ⚠ 同一列被选了多次，会被自动去重；请避免重复选择。
+                    </span>
+                </div>
+                <div class="field">
+                    <label class="field-label">归一化</label>
+                    <div class="inline-group">
+                        <label><input type="checkbox" v-model="form.dedupIgnoreSpace" /> 忽略前后空白</label>
+                        <label><input type="checkbox" v-model="form.dedupIgnoreCase" /> 忽略大小写</label>
+                    </div>
+                    <span class="field-hint" style="margin-left:10px">
+                        💡 只去首尾空白（不去中间）；大小写仅对英文字母生效
+                    </span>
+                </div>
+                <div v-if="dedupHint || dedupHintInplace" class="field">
+                    <span class="field-hint" style="color:var(--primary,#3b82f6)">
+                        💡 {{ isInplace ? dedupHintInplace : dedupHint }}
+                    </span>
+                </div>
+            </template>
             <div class="field">
                 <span class="field-hint">
                     想看重复值而不删除？用 Excel 「开始 → 条件格式 → 突出显示单元格规则 → 重复值」更方便。
                 </span>
             </div>
+        </Collapsible>
+
+        <Collapsible title="高级筛选" :open="advFilterOpen" @update:open="v => advFilterOpen = v">
+            <template #head-extra>
+                <span v-if="hasActiveFilter" class="adv-badge"
+                      :title="`${activeFilterCount} 个条件激活中`">
+                    ⚠ {{ activeFilterCount }} 个条件激活
+                </span>
+            </template>
+            <div class="adv-presets">
+                <span class="field-label" style="margin-right:8px">预设：</span>
+                <select v-model="presetSelected" class="name-select"
+                        @change="presetSelected && applyPreset(presetSelected)">
+                    <option value="">— 选择预设 —</option>
+                    <option v-for="p in form.advancedFilterPresets" :key="p.name" :value="p.name">{{ p.name }}</option>
+                </select>
+                <button v-if="!presetSaving" type="button" class="btn-mini" @click="startSavePreset">💾 另存为</button>
+                <button v-if="presetSelected" type="button" class="btn-mini btn-danger" @click="deletePreset">🗑 删除</button>
+                <template v-if="presetSaving">
+                    <input type="text" v-model="presetNewName" placeholder="预设名"
+                           class="name-input" style="width:160px"
+                           @keyup.enter="commitSavePreset" @keyup.esc="cancelSavePreset" />
+                    <button type="button" class="btn-mini btn-primary" @click="commitSavePreset">保存</button>
+                    <button type="button" class="btn-mini" @click="cancelSavePreset">取消</button>
+                </template>
+            </div>
+            <AdvancedFilter v-model="form.advancedFilter" :columns="previewState.columns" />
         </Collapsible>
 
         <div class="strip strip-output">

@@ -46,7 +46,7 @@ type perSourceHits struct {
 	csvSchema *FileSchema      // 仅 csv 源使用：用于列宽/列名（复用统一 schema 逻辑）
 }
 
-func newPerSourceWriter(outDir string, headerRow int, sheets []string, prefix, dedupColumn string) *perSourceWriter {
+func newPerSourceWriter(outDir string, headerRow int, sheets []string, prefix string, dedupCfg dedupConfig) *perSourceWriter {
 	// 复制一份 sheets 避免调用方后续修改
 	sheetsCopy := append([]string(nil), sheets...)
 	return &perSourceWriter{
@@ -54,7 +54,7 @@ func newPerSourceWriter(outDir string, headerRow int, sheets []string, prefix, d
 		headerRow: headerRow,
 		sheets:    sheetsCopy,
 		prefix:    prefix,
-		dedup:     newDeduper(dedupColumn),
+		dedup:     newDeduper(dedupCfg),
 		hits:      map[string]*perSourceHits{},
 		ts:        timestamp(),
 	}

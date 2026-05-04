@@ -44,6 +44,16 @@ type ExtractRequest struct {
 	// 前端以 checkbox 控制：未勾时提交空串，勾了但没选列也会被前端检测抦截。
 	// 去重范围由 Strategy 自动推导（见 core.ExtractTask.DedupColumn 的说明）。
 	DedupColumn string `json:"dedupColumn"`
+
+	// V1.2+：多列组合去重（最多 3 列）。空数组 = 按单列语义。
+	// 和 DedupColumn 同填时，后端会合并去重后给 extractor。
+	DedupColumns []string `json:"dedupColumns"`
+
+	// V1.2+：忽略前后空白（只去首尾，不去中间）。
+	DedupIgnoreSpace bool `json:"dedupIgnoreSpace"`
+
+	// V1.2+：忽略大小写（英文字母生效，中文无影响）。
+	DedupIgnoreCase bool `json:"dedupIgnoreCase"`
 }
 
 // SplitRequest 是前端请求单文件拆分时提交的 DTO。
@@ -80,6 +90,11 @@ type SplitRequest struct {
 	// 去重列（V1.1+）：仅 by_keyword 模式生效；其他三种拆分模式服务端强制清空。
 	// 语义跟 ExtractRequest.DedupColumn 一致。
 	DedupColumn string `json:"dedupColumn"`
+
+	// V1.2+：多列组合 + 归一化开关，语义完全跟 ExtractRequest 一致。仅 by_keyword 模式生效。
+	DedupColumns     []string `json:"dedupColumns"`
+	DedupIgnoreSpace bool     `json:"dedupIgnoreSpace"`
+	DedupIgnoreCase  bool     `json:"dedupIgnoreCase"`
 }
 
 // AdvancedFilterDTO 是前端 → 后端的高级筛选 DTO。

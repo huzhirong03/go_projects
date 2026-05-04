@@ -71,6 +71,9 @@ export namespace service {
 	    backupSource: boolean;
 	    advancedFilter?: AdvancedFilterDTO;
 	    dedupColumn: string;
+	    dedupColumns: string[];
+	    dedupIgnoreSpace: boolean;
+	    dedupIgnoreCase: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ExtractRequest(source);
@@ -96,6 +99,9 @@ export namespace service {
 	        this.backupSource = source["backupSource"];
 	        this.advancedFilter = this.convertValues(source["advancedFilter"], AdvancedFilterDTO);
 	        this.dedupColumn = source["dedupColumn"];
+	        this.dedupColumns = source["dedupColumns"];
+	        this.dedupIgnoreSpace = source["dedupIgnoreSpace"];
+	        this.dedupIgnoreCase = source["dedupIgnoreCase"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -169,6 +175,9 @@ export namespace service {
 	    backupSource: boolean;
 	    advancedFilter?: AdvancedFilterDTO;
 	    dedupColumn: string;
+	    dedupColumns: string[];
+	    dedupIgnoreSpace: boolean;
+	    dedupIgnoreCase: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new SplitRequest(source);
@@ -196,6 +205,9 @@ export namespace service {
 	        this.backupSource = source["backupSource"];
 	        this.advancedFilter = this.convertValues(source["advancedFilter"], AdvancedFilterDTO);
 	        this.dedupColumn = source["dedupColumn"];
+	        this.dedupColumns = source["dedupColumns"];
+	        this.dedupIgnoreSpace = source["dedupIgnoreSpace"];
+	        this.dedupIgnoreCase = source["dedupIgnoreCase"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

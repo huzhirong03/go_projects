@@ -209,3 +209,186 @@ func containsAny(s, sub string) bool {
 	}
 	return false
 }
+
+// ======================================================================
+// V1.2 集成测试：多列组合去重 + 忽略空白/大小写
+// ======================================================================
+
+// buildDedupFolderV12 构造 V1.2 测试用的文件夹：一个文件，带故意的"空白/大小写/多列"混杂。
+//
+//	file1.xlsx: 品牌,型号,价格
+//	  Apple,   iPhone,   100     <- 基准
+//	  APPLE,   IPHONE,   200     <- 与上行：大小写不同
+//	  apple ,   iphone ,  300    <- 与上行：大小写+前后空白
+//	  Apple,   Watch,    400     <- 与第一行：型号不同（多列组合才能保留）
+//	  Xiaomi,  Mi10,     500     <- 无重复
+func buildDedupFolderV12(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	f := excelize.NewFile()
+	defer f.Close()
+	const sheet = "Sheet1"
+	headers := []string{"品牌", "型号", "价格"}
+	for i, h := range headers {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		_ = f.SetCellValue(sheet, cell, h)
+	}
+	rows := [][]any{
+		{"Apple", "iPhone", 100.0},
+		{"APPLE", "IPHONE", 200.0},
+		{"apple ", "iphone ", 300.0},
+		{"Apple", "Watch", 400.0},
+		{"Xiaomi", "Mi10", 500.0},
+	}
+	for ri, r := range rows {
+		for ci, v := range r {
+			cell, _ := excelize.CoordinatesToCellName(ci+1, ri+2)
+			_ = f.SetCellValue(sheet, cell, v)
+		}
+	}
+	if err := f.SaveAs(filepath.Join(dir, "v12.xlsx")); err != nil {
+		t.Fatalf("SaveAs: %v", err)
+	}
+	return dir
+}
+
+// TestExtract_Dedup_MultiCol_Merged：双列组合（品牌+型号）全局去重，严格比较（无归一化）
+// 输入 5 行，按 strict 比较：
+//
+//	(Apple,iPhone), (APPLE,IPHONE), (apple ,iphone ), (Apple,Watch), (Xiaomi,Mi10)
+//
+// 5 组都不相等 → 全保留 5 行
+func TestExtract_Dedup_MultiCol_Merged(t *testing.T) {
+	src := buildDedupFolderV12(t)
+	out := t.TempDir()
+	task := core.ExtractTask{
+		FolderPath:    src,
+		Keywords:      []string{"iPhone", "IPHONE", "iphone", "Watch", "Mi10"},
+		MatchMode:     core.MatchContains,
+		SearchAllCols: true,
+		Output:        core.OutputMerged,
+		OutputDir:     out,
+		HeaderRow:     1,
+		DedupColumns:  []string{"品牌", "型号"},
+	}
+	res, err := Extract(context.Background(), task, nil)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	got := countDataRowsXlsx(t, res.OutputFiles[0], "Sheet1")
+	if got != 5 {
+		t.Errorf("严格双列去重应全保留 5 行，实际 %d", got)
+	}
+}
+
+// TestExtract_Dedup_MultiCol_IgnoreCase：双列 + 忽略大小写
+// strict 下 5 行；忽略大小写后 Apple/APPLE、iPhone/IPHONE 视作同 → (Apple,iPhone) 有两行
+// 预期：第 2 行被 drop，保留 4 行
+func TestExtract_Dedup_MultiCol_IgnoreCase(t *testing.T) {
+	src := buildDedupFolderV12(t)
+	out := t.TempDir()
+	task := core.ExtractTask{
+		FolderPath:      src,
+		Keywords:        []string{"iPhone", "IPHONE", "iphone", "Watch", "Mi10"},
+		MatchMode:       core.MatchContains,
+		SearchAllCols:   true,
+		Output:          core.OutputMerged,
+		OutputDir:       out,
+		HeaderRow:       1,
+		DedupColumns:    []string{"品牌", "型号"},
+		DedupIgnoreCase: true,
+	}
+	res, err := Extract(context.Background(), task, nil)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	got := countDataRowsXlsx(t, res.OutputFiles[0], "Sheet1")
+	// 行 2 (APPLE,IPHONE) 被 drop（与行 1 同）；行 3 (apple ,iphone ) 保留（trailing space 让 strict 比较后不同）
+	if got != 4 {
+		t.Errorf("忽略大小写后应保留 4 行，实际 %d", got)
+	}
+}
+
+// TestExtract_Dedup_MultiCol_IgnoreSpaceAndCase：双列 + 同时忽略空白+大小写
+// 此时 Apple/APPLE/apple、iPhone/IPHONE/iphone（带空白）全视作同 → (Apple,iPhone) 有 3 行
+// 预期：第 2、3 行被 drop，保留 3 行（首 + Watch + Mi10）
+func TestExtract_Dedup_MultiCol_IgnoreSpaceAndCase(t *testing.T) {
+	src := buildDedupFolderV12(t)
+	out := t.TempDir()
+	task := core.ExtractTask{
+		FolderPath:       src,
+		Keywords:         []string{"iPhone", "IPHONE", "iphone", "Watch", "Mi10"},
+		MatchMode:        core.MatchContains,
+		SearchAllCols:    true,
+		Output:           core.OutputMerged,
+		OutputDir:        out,
+		HeaderRow:        1,
+		DedupColumns:     []string{"品牌", "型号"},
+		DedupIgnoreSpace: true,
+		DedupIgnoreCase:  true,
+	}
+	res, err := Extract(context.Background(), task, nil)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	got := countDataRowsXlsx(t, res.OutputFiles[0], "Sheet1")
+	if got != 3 {
+		t.Errorf("双开关后应保留 3 行，实际 %d", got)
+	}
+}
+
+// TestExtract_Dedup_BackwardCompat_V11：只填 DedupColumn（V1.1 单列字段）仍生效
+// V1.1 样例：单列"产品名"对 6 行输入去重，保留 4 行（跟 TestExtract_Dedup_Merged 一致语义）。
+func TestExtract_Dedup_BackwardCompat_V11(t *testing.T) {
+	src := buildDedupFolder(t) // 复用 V1.1 fixture
+	out := t.TempDir()
+	task := core.ExtractTask{
+		FolderPath:    src,
+		Keywords:      []string{"口红", "眼影"},
+		MatchMode:     core.MatchContains,
+		SearchAllCols: true,
+		Output:        core.OutputMerged,
+		OutputDir:     out,
+		HeaderRow:     1,
+		DedupColumn:   "产品名", // 老字段，DedupColumns 留空
+	}
+	res, err := Extract(context.Background(), task, nil)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	got := countDataRowsXlsx(t, res.OutputFiles[0], "Sheet1")
+	if got != 4 {
+		t.Errorf("V1.1 单列字段应向后兼容（预期 4 行），实际 %d", got)
+	}
+}
+
+// TestExtract_Dedup_V11_and_V12_Coexist：DedupColumn 和 DedupColumns 同时填
+// buildDedupConfig 会合并去重：结果等价于"产品名 + 价格"双列。
+// 6 行数据：
+//
+//	(口红A,10), (口红B,20), (眼影C,30), (口红A,99), (口红D,40), (眼影C,88)
+//
+// 6 个 (产品名,价格) 组合都不相等 → 全保留 6 行。
+func TestExtract_Dedup_V11_and_V12_Coexist(t *testing.T) {
+	src := buildDedupFolder(t)
+	out := t.TempDir()
+	task := core.ExtractTask{
+		FolderPath:    src,
+		Keywords:      []string{"口红", "眼影"},
+		MatchMode:     core.MatchContains,
+		SearchAllCols: true,
+		Output:        core.OutputMerged,
+		OutputDir:     out,
+		HeaderRow:     1,
+		DedupColumn:   "产品名",
+		DedupColumns:  []string{"价格"},
+	}
+	res, err := Extract(context.Background(), task, nil)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	got := countDataRowsXlsx(t, res.OutputFiles[0], "Sheet1")
+	if got != 6 {
+		t.Errorf("V1.1+V1.2 共用字段：产品名+价格双列全部不同，应保留 6 行，实际 %d", got)
+	}
+}

@@ -97,7 +97,8 @@ func ExtractUnits(
 	}
 
 	// 5. 选输出策略
-	ow, imgCounterFn, err := newOutputWriter(task.Output, task.OutputDir, task.HeaderRow, task.SheetNames, task.FilenamePrefix, task.DedupColumn)
+	dedupCfg := buildDedupConfig(task.DedupColumn, task.DedupColumns, task.DedupIgnoreSpace, task.DedupIgnoreCase)
+	ow, imgCounterFn, err := newOutputWriter(task.Output, task.OutputDir, task.HeaderRow, task.SheetNames, task.FilenamePrefix, dedupCfg)
 	if err != nil {
 		return nil, err
 	}
@@ -502,23 +503,23 @@ func readRowFormulas(r *excelio.Reader, sheet string, row, ncells int) []string 
 //
 // per_keyword / merged 是"多源合并"本质，继续用流式重写的 defaultSheet="结果"。
 //
-// dedupColumn（V1.1+）：去重列名；空串 = 不去重。各 writer 内部按自身策略决定分桶：
+// dedupCfg（V1.1+ / V1.2+）：去重配置；Columns 为空 = 不去重。各 writer 内部按自身策略决定分桶：
 //   - merged     -> 全局唯一桶
 //   - per_keyword -> 按关键词分桶
 //   - per_source -> 按源文件分桶
 func newOutputWriter(
-	strategy core.OutputStrategy, outDir string, headerRow int, sheets []string, filenamePrefix, dedupColumn string,
+	strategy core.OutputStrategy, outDir string, headerRow int, sheets []string, filenamePrefix string, dedupCfg dedupConfig,
 ) (OutputWriter, func() int, error) {
 	const defaultSheet = "结果"
 	switch strategy {
 	case core.OutputPerKeyword:
-		w := newPerKeywordWriter(outDir, defaultSheet, filenamePrefix, dedupColumn)
+		w := newPerKeywordWriter(outDir, defaultSheet, filenamePrefix, dedupCfg)
 		return w, w.ImagesMigrated, nil
 	case core.OutputMerged:
-		w := newMergedWriter(outDir, defaultSheet, filenamePrefix, dedupColumn)
+		w := newMergedWriter(outDir, defaultSheet, filenamePrefix, dedupCfg)
 		return w, w.ImagesMigrated, nil
 	case core.OutputPerSource:
-		w := newPerSourceWriter(outDir, headerRow, sheets, filenamePrefix, dedupColumn)
+		w := newPerSourceWriter(outDir, headerRow, sheets, filenamePrefix, dedupCfg)
 		return w, w.ImagesMigrated, nil
 	default:
 		return nil, nil, core.New("INVALID_STRATEGY", "未知输出策略")

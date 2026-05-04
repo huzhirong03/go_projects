@@ -20,12 +20,12 @@ type perKeywordWriter struct {
 	ts       string
 }
 
-func newPerKeywordWriter(outDir, sheet, prefix, dedupColumn string) *perKeywordWriter {
+func newPerKeywordWriter(outDir, sheet, prefix string, dedupCfg dedupConfig) *perKeywordWriter {
 	return &perKeywordWriter{
 		outDir:  outDir,
 		sheet:   sheet,
 		prefix:  prefix,
-		dedup:   newDeduper(dedupColumn),
+		dedup:   newDeduper(dedupCfg),
 		streams: map[string]*outputStream{},
 		ts:      timestamp(),
 	}

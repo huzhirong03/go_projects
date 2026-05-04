@@ -113,6 +113,10 @@ func buildSplitTask(req SplitRequest) (core.SplitTask, error) {
 		task.AdvancedFilter = advFilter
 		// 去重列同理：仅 by_keyword 生效；其他模式 task.DedupColumn 保持零值 ""。
 		task.DedupColumn = strings.TrimSpace(req.DedupColumn)
+		// V1.2 多列 + 归一化开关
+		task.DedupColumns = sanitizeDedupColumns(req.DedupColumns)
+		task.DedupIgnoreSpace = req.DedupIgnoreSpace
+		task.DedupIgnoreCase = req.DedupIgnoreCase
 	}
 
 	return task, nil

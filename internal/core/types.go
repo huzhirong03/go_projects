@@ -120,12 +120,23 @@ type ExtractTask struct {
 	// 跨文件 schema 不一致时（A 文件有该列名、B 没有）：B 文件的行全部保留 + warning 日志，
 	// 保证数据不丢；用户能从日志里看到哪些文件未参与去重。
 	DedupColumn string
+
+	// V1.2：多列组合去重。最多 3 列，超过的 service 层截断。
+	// 任一列为空值→整行不参与去重（跟 V1.1 单列语义一致）。
+	// 向后兼容：DedupColumn 不为空而 DedupColumns 为空时，service 层按单列处理。
+	// DedupColumn 和 DedupColumns 都填了时，service 层会合并到 DedupColumns 并去重。
+	DedupColumns []string
+
+	// V1.2：忽略前后空白（只去首尾，不去中间）。
+	DedupIgnoreSpace bool
+
+	// V1.2：忽略大小写（英文字母生效，中文无影响）。
+	DedupIgnoreCase bool
 }
 
 // SplitTask 单文件拆分任务。
 //
 // SheetNames 为空表示"处理全部 Sheet"。
-// SplitByKeyword 模式额外使用 Keywords / MatchMode / SearchAllCols / SearchColumns / Output。
 type SplitTask struct {
 	SourcePath     string    // 源文件绝对路径
 	Mode           SplitMode // 拆分方式
@@ -158,6 +169,11 @@ type SplitTask struct {
 	// 语义跟 ExtractTask.DedupColumn 一致：按列名 strict 比较，保留首次出现的行。
 	// 每个关键词的输出文件独立去重（跟 Extract OutputPerKeyword 策略一致）。
 	DedupColumn string
+
+	// V1.2：多列组合去重 + 归一化开关，语义完全跟 ExtractTask 一致。
+	DedupColumns     []string
+	DedupIgnoreSpace bool
+	DedupIgnoreCase  bool
 }
 
 // Progress 任务进度快照。Done == Total 表示完成。
