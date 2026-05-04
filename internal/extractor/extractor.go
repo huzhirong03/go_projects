@@ -284,11 +284,13 @@ func processFile(
 		time.Since(tProbe).Round(time.Millisecond), hasFormulas, len(heightMap)))
 
 	// 阶段 2：流式行迭代，收集命中行到内存（不加载图片字节）。
-	it, err := r.Iterate(fs.File.SheetName)
+	// A：openScanIterator 优先用 xlsxreader 快路径（PoC 实测比 excelize 快 1.51×），
+	// 不可用时静默回退到 r.Iterate（excelize），业务语义零差异。
+	it, scanCleanup, err := openScanIterator(r, fs.File.Path, fs.File.SheetName, emitter)
 	if err != nil {
 		return 0, false, err
 	}
-	defer it.Close()
+	defer scanCleanup()
 
 	type stagedRow struct {
 		rowNum int
