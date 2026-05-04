@@ -33,7 +33,8 @@ func main() {
 		headerRow  = flag.Int("header", 1, "表头行号（1-based，0 表示无表头）")
 		noImage    = flag.Bool("no-image", false, "不保留图片（加快速度）")
 		searchCols = flag.String("cols", "", "限定搜索列名（逗号分隔，默认全列搜索）")
-		modeStr    = flag.String("mode", "all", "匹配模式：exact | contains | pinyin | all（默认三种全开）")
+		modeStr    = flag.String("mode", "all", "匹配模式：exact | contains | all（默认两种全开）")
+		dedupCol   = flag.String("dedup", "", "去重列名（空 = 不去重，按该列 strict 比较去重，保留首次出现）")
 	)
 	flag.Parse()
 
@@ -84,6 +85,7 @@ func main() {
 		OutputDir:      finalOut,
 		HeaderRow:      *headerRow,
 		PreserveImages: !*noImage,
+		DedupColumn:    strings.TrimSpace(*dedupCol),
 	}
 
 	// 支持 Ctrl+C 取消
@@ -105,6 +107,9 @@ func main() {
 	fmt.Printf("  输出策略   : %s\n", task.Output)
 	fmt.Printf("  输出目录   : %s\n", task.OutputDir)
 	fmt.Printf("  保留图片   : %v\n", task.PreserveImages)
+	if task.DedupColumn != "" {
+		fmt.Printf("  去重列     : %s\n", task.DedupColumn)
+	}
 	fmt.Println("---")
 
 	start := time.Now()

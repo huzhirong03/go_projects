@@ -57,6 +57,7 @@ func SplitByKeyword(ctx context.Context, task core.SplitTask, emitter core.Event
 		OutputTarget:   task.OutputTarget,
 		BackupSource:   task.BackupSource,
 		AdvancedFilter: task.AdvancedFilter,
+		DedupColumn:    task.DedupColumn, // V1.1+ 透传给 extractor，由 writer 按策略分桶去重
 	}
 	er, err := extractor.ExtractUnits(ctx, et, units, emitter)
 	if err != nil {

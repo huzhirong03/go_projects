@@ -97,7 +97,7 @@ func ExtractUnits(
 	}
 
 	// 5. 选输出策略
-	ow, imgCounterFn, err := newOutputWriter(task.Output, task.OutputDir, task.HeaderRow, task.SheetNames, task.FilenamePrefix)
+	ow, imgCounterFn, err := newOutputWriter(task.Output, task.OutputDir, task.HeaderRow, task.SheetNames, task.FilenamePrefix, task.DedupColumn)
 	if err != nil {
 		return nil, err
 	}
@@ -501,19 +501,24 @@ func readRowFormulas(r *excelio.Reader, sheet string, row, ncells int) []string 
 //   - sheets 是用户在前端选中的 Sheet 名列表；原汁原味会只保留这些 Sheet 里有命中的。
 //
 // per_keyword / merged 是"多源合并"本质，继续用流式重写的 defaultSheet="结果"。
+//
+// dedupColumn（V1.1+）：去重列名；空串 = 不去重。各 writer 内部按自身策略决定分桶：
+//   - merged     -> 全局唯一桶
+//   - per_keyword -> 按关键词分桶
+//   - per_source -> 按源文件分桶
 func newOutputWriter(
-	strategy core.OutputStrategy, outDir string, headerRow int, sheets []string, filenamePrefix string,
+	strategy core.OutputStrategy, outDir string, headerRow int, sheets []string, filenamePrefix, dedupColumn string,
 ) (OutputWriter, func() int, error) {
 	const defaultSheet = "结果"
 	switch strategy {
 	case core.OutputPerKeyword:
-		w := newPerKeywordWriter(outDir, defaultSheet, filenamePrefix)
+		w := newPerKeywordWriter(outDir, defaultSheet, filenamePrefix, dedupColumn)
 		return w, w.ImagesMigrated, nil
 	case core.OutputMerged:
-		w := newMergedWriter(outDir, defaultSheet, filenamePrefix)
+		w := newMergedWriter(outDir, defaultSheet, filenamePrefix, dedupColumn)
 		return w, w.ImagesMigrated, nil
 	case core.OutputPerSource:
-		w := newPerSourceWriter(outDir, headerRow, sheets, filenamePrefix)
+		w := newPerSourceWriter(outDir, headerRow, sheets, filenamePrefix, dedupColumn)
 		return w, w.ImagesMigrated, nil
 	default:
 		return nil, nil, core.New("INVALID_STRATEGY", "未知输出策略")

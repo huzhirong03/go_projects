@@ -116,17 +116,28 @@ func (a *App) LogStartup(msg string) {
 	log.Printf("[STARTUP-FE] %s (Go now=%v)", msg, time.Since(procStart))
 }
 
-// OpenLogFolder 用系统资源管理器打开日志目录。前端"打开日志文件夹"按钮用。
-// 失败返回错误，前端可弹 toast。
-// 用 hiddenCmdAttr 隐藏控制台窗口，避免学员看到黑框。
+// OpenLogFolder 用资源管理器打开日志目录。前端"打开日志文件夹"按钮用。
+//
+// 实现选 explorer.exe 而非 rundll32：
+//   - explorer 是 GUI 进程，不受 CREATE_NO_WINDOW 影响（rundll32+CREATE_NO_WINDOW 在某些
+//     Windows 版本上 ShellExecuteEx 会静默失败，是历史 bug）
+//   - 直接传目录参数 = 打开资源管理器并定位到该目录
+//   - 不需要 hiddenCmdAttr 也不会闪黑框（explorer 本身就有窗口）
+//
+// 兜底：explorer 找不到时（极端只读 Win PE 等）退回 rundll32，但**不再用 hiddenCmdAttr**，
+// 让真正的失败能正常返回。
 func (a *App) OpenLogFolder() error {
 	dir, err := a.svc.LogsDirPath()
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command("rundll32", "url.dll,FileProtocolHandler", dir)
-	cmd.SysProcAttr = hiddenCmdAttr()
-	return cmd.Start()
+	// 主路径：explorer.exe，标准、稳定
+	cmd := exec.Command("explorer.exe", dir)
+	if err := cmd.Start(); err == nil {
+		return nil
+	}
+	// 兜底：rundll32（不加 CREATE_NO_WINDOW，避免静默失败）
+	return exec.Command("rundll32", "url.dll,FileProtocolHandler", dir).Start()
 }
 
 // LogsDirPath 返回日志目录路径字符串，给前端 toast 显示用（不弹窗，纯展示）。

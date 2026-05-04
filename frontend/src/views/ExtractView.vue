@@ -48,10 +48,16 @@ const defaults = {
     //   advancedFilterPresets: 用户保存的命名预设 [{name, mode, conditions}]
     advancedFilter: { mode: FILTER_MODE_ALL, conditions: [] },
     advancedFilterPresets: [],
-    // 折叠状态（默认全展开）
+    // 去重（V1.1+）：未启用时 dedupColumn 不会被提交，保持后端零回归。
+    //   dedupEnabled: 仅 UI 层开关，未勾时 submit 直接传空串
+    //   dedupColumn:  去重列名，必须是源文件表头里存在的列
+    dedupEnabled: false,
+    dedupColumn: '',
+    // 折叠状态（默认全展开，去重区块默认折叠避免占屏）
     foldPaths: false,
     foldKeywords: false,
     foldRange: false,
+    foldDedup: true,
 }
 
 const form = reactive({ ...defaults, sheetNames: [] })
@@ -94,6 +100,28 @@ watch(inplaceAvailable, (v) => {
 // 当前激活的条件数。
 const activeFilterCount = computed(() => countActiveConditions(form.advancedFilter))
 const hasActiveFilter = computed(() => activeFilterCount.value > 0)
+
+// --- 去重 ---
+// dedupHint 根据当前策略动态显示去重范围说明，让用户清楚"会跨文件去重还是文件内去重"。
+const dedupHint = computed(() => {
+    if (!form.dedupEnabled || !form.dedupColumn) return ''
+    const col = form.dedupColumn
+    switch (form.strategy) {
+        case OUTPUT_MERGED:
+            return `所有文件合并后，按「${col}」列全局去重`
+        case OUTPUT_PER_KEYWORD:
+            return `每个关键词的输出文件内独立按「${col}」列去重`
+        case OUTPUT_PER_SOURCE:
+            return `每个源文件的输出文件内独立按「${col}」列去重`
+        default:
+            return `按「${col}」列去重，保留首次出现的行`
+    }
+})
+// inplace 时也要给提示
+const dedupHintInplace = computed(() => {
+    if (!form.dedupEnabled || !form.dedupColumn) return ''
+    return `新 Sheet 内独立按「${form.dedupColumn}」列去重`
+})
 // 没关键词但有筛选 → per_keyword 没意义，自动降级 merged（UI 上 per_keyword 单选会灰掉）。
 const filterOnlyMode = computed(() => !form.keywordsRaw.trim() && hasActiveFilter.value)
 watch(filterOnlyMode, (v) => {
@@ -286,6 +314,10 @@ async function submit() {
     if (previewState.sheets.length > 1 && form.sheetNames.length === 0) {
         return showToast('请至少勾选一个要处理的 Sheet', 'warn')
     }
+    // 去重启用但未选列 → 拦截
+    if (form.dedupEnabled && !form.dedupColumn) {
+        return showToast('启用去重时必须选择一列作为去重依据', 'warn')
+    }
 
     try {
         const handle = await startExtract({
@@ -309,6 +341,8 @@ async function submit() {
             outputTarget: isInplace.value ? 'inplace_sheets' : 'new_files',
             backupSource: isInplace.value && form.backupSource,
             advancedFilter: buildAdvancedFilterDTO(),
+            // 未启用时传空串，后端按零回归路径走
+            dedupColumn: form.dedupEnabled ? form.dedupColumn : '',
         })
         startTask(handle.taskId)
         // 注意：不在这里立刻滚动，结果还没生成滚下去也是空的。
@@ -429,6 +463,42 @@ async function submit() {
                         </label>
                     </div>
                 </div>
+            </div>
+        </Collapsible>
+
+        <Collapsible title="去重" :open="!form.foldDedup" @update:open="v => form.foldDedup = !v">
+            <template #head-extra>
+                <span v-if="form.dedupEnabled && form.dedupColumn" class="adv-badge"
+                      :title="isInplace ? dedupHintInplace : dedupHint">
+                    ✓ 按「{{ form.dedupColumn }}」去重
+                </span>
+            </template>
+            <div class="field">
+                <label class="keep-images">
+                    <input type="checkbox" v-model="form.dedupEnabled" />
+                    启用去重（按指定列去重，保留首次出现的行）
+                </label>
+            </div>
+            <div v-if="form.dedupEnabled" class="field">
+                <label class="field-label">去重列</label>
+                <select v-model="form.dedupColumn" class="name-select">
+                    <option value="">— 选择一列 —</option>
+                    <option v-for="c in previewState.columns" :key="c" :value="c">{{ c }}</option>
+                </select>
+                <span v-if="!form.dedupColumn" class="field-hint" style="margin-left:10px;color:var(--warn,#d97706)">
+                    必须选一列作为去重依据
+                </span>
+                <span v-else-if="isInplace" class="field-hint" style="margin-left:10px">
+                    💡 {{ dedupHintInplace }}
+                </span>
+                <span v-else class="field-hint" style="margin-left:10px">
+                    💡 {{ dedupHint }}
+                </span>
+            </div>
+            <div class="field">
+                <span class="field-hint">
+                    想看重复值而不删除？用 Excel 「开始 → 条件格式 → 突出显示单元格规则 → 重复值」更方便。
+                </span>
             </div>
         </Collapsible>
 

@@ -39,6 +39,11 @@ type ExtractRequest struct {
 	// 高级筛选（V1.5+）：在关键词命中之后再按列条件二次过滤。
 	// AdvancedFilter == nil 或 Conditions 为空时等同于不启用，行为完全跟旧版一致。
 	AdvancedFilter *AdvancedFilterDTO `json:"advancedFilter,omitempty"`
+
+	// 去重列（V1.1+）：按该列去重，保留首次出现的行。空串 = 不去重（默认）。
+	// 前端以 checkbox 控制：未勾时提交空串，勾了但没选列也会被前端检测抦截。
+	// 去重范围由 Strategy 自动推导（见 core.ExtractTask.DedupColumn 的说明）。
+	DedupColumn string `json:"dedupColumn"`
 }
 
 // SplitRequest 是前端请求单文件拆分时提交的 DTO。
@@ -71,6 +76,10 @@ type SplitRequest struct {
 
 	// 高级筛选（V1.5+）：仅 by_keyword 模式生效；其他三种拆分模式服务端忽略。
 	AdvancedFilter *AdvancedFilterDTO `json:"advancedFilter,omitempty"`
+
+	// 去重列（V1.1+）：仅 by_keyword 模式生效；其他三种拆分模式服务端强制清空。
+	// 语义跟 ExtractRequest.DedupColumn 一致。
+	DedupColumn string `json:"dedupColumn"`
 }
 
 // AdvancedFilterDTO 是前端 → 后端的高级筛选 DTO。

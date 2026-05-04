@@ -26,8 +26,10 @@ import (
 type perSourceWriter struct {
 	outDir    string
 	headerRow int      // 1-based；<=0 表示无表头（不强制保留第一行）
-	sheets    []string // 用户选中的 Sheet 列表；空=保留所有（但下面会进一步按"是否有命中"过滤）
+	sheets    []string // 用户选中的 Sheet 列表；空=保留所有（但下面会进一步按“是否有命中”过滤）
 	prefix    string
+	schema    *UnifiedSchema            // Begin 时保存，供 deduper bind 去重列使用
+	dedup     *deduper                  // V1.1+：按源文件分桶去重；column="" 时为 no-op
 	hits      map[string]*perSourceHits // key = 源文件绝对路径
 	imgCount  int
 	ts        string
@@ -44,7 +46,7 @@ type perSourceHits struct {
 	csvSchema *FileSchema      // 仅 csv 源使用：用于列宽/列名（复用统一 schema 逻辑）
 }
 
-func newPerSourceWriter(outDir string, headerRow int, sheets []string, prefix string) *perSourceWriter {
+func newPerSourceWriter(outDir string, headerRow int, sheets []string, prefix, dedupColumn string) *perSourceWriter {
 	// 复制一份 sheets 避免调用方后续修改
 	sheetsCopy := append([]string(nil), sheets...)
 	return &perSourceWriter{
@@ -52,13 +54,16 @@ func newPerSourceWriter(outDir string, headerRow int, sheets []string, prefix st
 		headerRow: headerRow,
 		sheets:    sheetsCopy,
 		prefix:    prefix,
+		dedup:     newDeduper(dedupColumn),
 		hits:      map[string]*perSourceHits{},
 		ts:        timestamp(),
 	}
 }
 
-// Begin 对本 writer 是 no-op：schema 对原汁原味路径不需要（不重新写表头）。
+// Begin 保存 schema 用于 deduper bind。对原汁原味输出路径不重写表头。
 func (p *perSourceWriter) Begin(schema *UnifiedSchema) error {
+	p.schema = schema
+	p.dedup.Bind(schema.Columns)
 	return nil
 }
 
@@ -66,6 +71,10 @@ func (p *perSourceWriter) Begin(schema *UnifiedSchema) error {
 // xlsx 源：记录行号，Finalize 时用 zip 手术按行过滤；
 // csv 源：记录整行内容 + schema，Finalize 时流式写纯数据 xlsx。
 func (p *perSourceWriter) EmitRow(row MatchedRow, fs *FileSchema) error {
+	// 去重：bucket = 源文件路径。同一源文件的输出文件内部去重，跨文件的重复不会被误删。
+	if p.dedup.ShouldDrop(row.SourceFile, row.Values) {
+		return nil
+	}
 	h, ok := p.hits[row.SourceFile]
 	if !ok {
 		h = &perSourceHits{path: row.SourceFile, sheetRows: map[string][]int{}}

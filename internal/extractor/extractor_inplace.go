@@ -48,6 +48,14 @@ func extractInplace(
 		unifiedSearchCols = schema.ResolveSearchColumns(task.SearchColumns)
 	}
 
+	// 构造 deduper：inplace 是单文件路径，所有 sheet 共用同一 deduper 实例维持已见 key。
+	// Bind 的列名来源：用源文件第一个 sheet 的 headers（inplace 是单文件，同文件不同 sheet 的
+	// headers 可能不同但并不常见；本版简化使用第一个 sheet 的 headers）。找不到列时 deduper 自动 no-op。
+	dedup := newDeduper(task.DedupColumn)
+	if len(schema.Files) > 0 {
+		dedup.Bind(schema.Files[0].File.Headers)
+	}
+
 	// 扫描每个 (file, sheet)，收集 sheet -> keyword -> []rowNum
 	hits := map[string]map[string][]int{}
 	rowsTotal := 0
@@ -61,7 +69,7 @@ func extractInplace(
 			Message: fs.File.Path + " [" + fs.File.SheetName + "]",
 		})
 		// 高级筛选编译（inplace 是单文件路径，但保持跟批量提取一致的处理：
-		// 缺失列直接报硬错误而非"跳过文件"——单文件下"跳过"等于整个任务空跑）。
+		// 缺失列直接报硬错误而非“跳过文件”——单文件下“跳过”等于整个任务空跑）。
 		flt, missing, ferr := buildFilter(task.AdvancedFilter, fs.File.Headers)
 		if ferr != nil {
 			return nil, core.Wrap("FILTER_COMPILE_FAILED", "高级筛选编译失败", ferr)
@@ -70,7 +78,7 @@ func extractInplace(
 			emitter.Log(core.LogWarn, fmt.Sprintf("[%s / %s] 高级筛选列缺失 %v",
 				fs.File.Path, fs.File.SheetName, missing))
 		}
-		sheetHits, matched, err := scanHitsForInplace(ctx, &fs, eng, unifiedSearchCols, task, flt, emitter)
+		sheetHits, matched, err := scanHitsForInplace(ctx, &fs, eng, unifiedSearchCols, task, flt, dedup, strategy, emitter)
 		if err != nil {
 			return nil, err
 		}
@@ -263,9 +271,14 @@ func buildInplaceSheetName(prefix, label, sourceSheet string, multiSheet bool) s
 // 文件占用时弹 retry/skip/cancel；skipped 返回 (nil, 0, nil)。
 //
 // flt：编译好的高级筛选；nil/IsZero 表示无筛选，关键词命中行直接计入。
+//
+// dedup：去重器；no-op 时不影响性能。strategy 决定去重桶：
+//   - OutputPerKeyword -> bucket = kw（每个新 Sheet 内部独立去重）
+//   - OutputMerged     -> bucket = ""（所有 kw 合并后全局去重）
 func scanHitsForInplace(
 	ctx context.Context, fs *FileSchema, eng *matcher.Engine,
-	unifiedSearchCols []int, task core.ExtractTask, flt *filter.Filter, emitter core.EventEmitter,
+	unifiedSearchCols []int, task core.ExtractTask, flt *filter.Filter,
+	dedup *deduper, strategy core.OutputStrategy, emitter core.EventEmitter,
 ) (map[string][]int, int, error) {
 	var r *excelio.Reader
 	var err error
@@ -332,6 +345,20 @@ func scanHitsForInplace(
 		// 高级筛选：关键词命中后立即应用，未通过的行不计入 inplace 写回。
 		if !flt.Apply(cells) {
 			continue
+		}
+		// 去重判断：按 strategy 决定 bucket。cells 是 []string，包装成 []any 适配 deduper 接口。
+		var bucket string
+		if strategy == core.OutputPerKeyword {
+			bucket = kw
+		}
+		if dedup.Enabled() {
+			rowAny := make([]any, len(cells))
+			for i, c := range cells {
+				rowAny[i] = c
+			}
+			if dedup.ShouldDrop(bucket, rowAny) {
+				continue
+			}
 		}
 		hits[kw] = append(hits[kw], it.RowNum())
 		total++

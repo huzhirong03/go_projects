@@ -70,6 +70,7 @@ export namespace service {
 	    outputTarget: string;
 	    backupSource: boolean;
 	    advancedFilter?: AdvancedFilterDTO;
+	    dedupColumn: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ExtractRequest(source);
@@ -94,6 +95,7 @@ export namespace service {
 	        this.outputTarget = source["outputTarget"];
 	        this.backupSource = source["backupSource"];
 	        this.advancedFilter = this.convertValues(source["advancedFilter"], AdvancedFilterDTO);
+	        this.dedupColumn = source["dedupColumn"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -166,6 +168,7 @@ export namespace service {
 	    outputTarget: string;
 	    backupSource: boolean;
 	    advancedFilter?: AdvancedFilterDTO;
+	    dedupColumn: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new SplitRequest(source);
@@ -192,6 +195,7 @@ export namespace service {
 	        this.outputTarget = source["outputTarget"];
 	        this.backupSource = source["backupSource"];
 	        this.advancedFilter = this.convertValues(source["advancedFilter"], AdvancedFilterDTO);
+	        this.dedupColumn = source["dedupColumn"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

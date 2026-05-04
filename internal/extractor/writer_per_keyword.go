@@ -14,16 +14,18 @@ type perKeywordWriter struct {
 	sheet    string
 	prefix   string
 	schema   *UnifiedSchema
+	dedup    *deduper                 // V1.1+：按关键词分桶去重；column="" 时为 no-op
 	streams  map[string]*outputStream // key = 关键词原文
 	imgCount int
 	ts       string
 }
 
-func newPerKeywordWriter(outDir, sheet, prefix string) *perKeywordWriter {
+func newPerKeywordWriter(outDir, sheet, prefix, dedupColumn string) *perKeywordWriter {
 	return &perKeywordWriter{
 		outDir:  outDir,
 		sheet:   sheet,
 		prefix:  prefix,
+		dedup:   newDeduper(dedupColumn),
 		streams: map[string]*outputStream{},
 		ts:      timestamp(),
 	}
@@ -31,6 +33,7 @@ func newPerKeywordWriter(outDir, sheet, prefix string) *perKeywordWriter {
 
 func (p *perKeywordWriter) Begin(schema *UnifiedSchema) error {
 	p.schema = schema
+	p.dedup.Bind(schema.Columns)
 	return nil
 }
 
@@ -59,6 +62,10 @@ func (p *perKeywordWriter) getOrCreate(kw string) (*outputStream, error) {
 func (p *perKeywordWriter) EmitRow(row MatchedRow, fs *FileSchema) error {
 	if p.schema == nil {
 		return core.New("WRITER_NOT_BEGAN", "调用 Begin 之前就 EmitRow")
+	}
+	// 去重：bucket = 关键词。同一关键词的文件内部去重，跨关键词的重复不会被误删。
+	if p.dedup.ShouldDrop(row.MatchedKW, row.Values) {
+		return nil
 	}
 	s, err := p.getOrCreate(row.MatchedKW)
 	if err != nil {

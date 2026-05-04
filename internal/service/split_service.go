@@ -32,6 +32,8 @@ func (s *Service) StartSplit(req SplitRequest) (*TaskHandle, error) {
 		// 任务日志：每次任务一个独立 .log 文件，便于事后回看
 		tl, _ := OpenTaskLog(taskID, "split")
 		defer tl.Close()
+		// 任务结束后异步清理旧日志（不阻塞 TaskDone 事件，兜住"软件常驻不重启"场景）
+		defer func() { go CleanupOldTaskLogs() }()
 		taskEmitter := wrapEmitterWithTaskLog(emitter, tl)
 		defer recoverToEmitter(taskEmitter)
 		result, err := splitter.Split(ctx, task, taskEmitter)
@@ -109,6 +111,8 @@ func buildSplitTask(req SplitRequest) (core.SplitTask, error) {
 		task.CSVDelimiter = req.CSVDelimiter
 		// 高级筛选仅在 by_keyword 模式生效；其他三模式即使前端传了也忽略。
 		task.AdvancedFilter = advFilter
+		// 去重列同理：仅 by_keyword 生效；其他模式 task.DedupColumn 保持零值 ""。
+		task.DedupColumn = strings.TrimSpace(req.DedupColumn)
 	}
 
 	return task, nil

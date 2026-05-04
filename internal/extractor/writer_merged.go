@@ -23,27 +23,40 @@ import (
 type mergedWriter struct {
 	outDir   string
 	prefix   string                    // 文件名前缀，默认为空串
+	schema   *UnifiedSchema            // Begin 时保存，供 deduper bind 去重列使用
+	dedup    *deduper                  // V1.1+：去重器；column="" 时为 no-op
 	hits     map[string]*perSourceHits // key = 源文件路径，复用 per_source 的累积结构
 	imgCount int
 	ts       string
 }
 
-func newMergedWriter(outDir, sheet, prefix string) *mergedWriter {
+func newMergedWriter(outDir, sheet, prefix, dedupColumn string) *mergedWriter {
 	_ = sheet // 不再需要预设“结果”底 sheet，名字从 primary 源文件继承
 	return &mergedWriter{
 		outDir: outDir,
 		prefix: prefix,
+		dedup:  newDeduper(dedupColumn),
 		hits:   map[string]*perSourceHits{},
 		ts:     timestamp(),
 	}
 }
 
-// Begin 对本 writer 是 no-op：schema 原汁原味路径不需要（不重写表头）。
-func (m *mergedWriter) Begin(schema *UnifiedSchema) error { return nil }
+// Begin 保存 schema 用于 deduper bind。不重写表头（zip 手术路径继承源文件的表头）。
+func (m *mergedWriter) Begin(schema *UnifiedSchema) error {
+	m.schema = schema
+	m.dedup.Bind(schema.Columns)
+	return nil
+}
 
 // EmitRow 仅累积命中信息；真正的文件操作在 Finalize 里做。
 // CSV 源不走 zip 手术，改用流式合并：额外缓存整行内容到 csvRows。
+//
+// 去重判断在最前面：bucket="" 代表全局唯一桶，所有源所有 sheet 合并后按去重列去重。
+// CSV 和 xlsx 两条路径都受此影响（保持策略一致）。
 func (m *mergedWriter) EmitRow(row MatchedRow, fs *FileSchema) error {
+	if m.dedup.ShouldDrop("", row.Values) {
+		return nil
+	}
 	h, ok := m.hits[row.SourceFile]
 	if !ok {
 		h = &perSourceHits{path: row.SourceFile, sheetRows: map[string][]int{}}

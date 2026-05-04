@@ -165,6 +165,8 @@ func (s *Service) StartExtract(req ExtractRequest) (*TaskHandle, error) {
 		// 任务日志：每次任务一个独立 .log 文件，落盘后即使关软件也能事后回看
 		tl, _ := OpenTaskLog(taskID, "extract")
 		defer tl.Close()
+		// 任务结束后异步清理旧日志（不阻塞 TaskDone 事件，兜住"软件常驻不重启"场景）
+		defer func() { go CleanupOldTaskLogs() }()
 		taskEmitter := wrapEmitterWithTaskLog(emitter, tl)
 		defer recoverToEmitter(taskEmitter)
 		result, err := extractor.Extract(ctx, task, taskEmitter)
@@ -221,6 +223,7 @@ func buildExtractTask(req ExtractRequest) (core.ExtractTask, error) {
 		OutputTarget:   parseOutputTarget(req.OutputTarget),
 		BackupSource:   req.BackupSource,
 		AdvancedFilter: advFilter,
+		DedupColumn:    strings.TrimSpace(req.DedupColumn),
 	}, nil
 }
 

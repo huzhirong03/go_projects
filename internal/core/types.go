@@ -107,6 +107,19 @@ type ExtractTask struct {
 	// 高级筛选（V1.5+）：在关键词命中后再按列条件二次过滤。
 	// nil 或 IsEmpty() = 不启用；行为完全跟旧版一致（零回归）。
 	AdvancedFilter *AdvancedFilterSpec
+
+	// 去重列（V1.1+）：在命中收集后按该列去重，保留首次出现的行（含其图片/公式/样式）。
+	// 空串 = 不去重，行为跟旧版一致。
+	//
+	// 去重范围由 Output 策略自动推导，不需要额外字段：
+	//   OutputMerged                    -> 全局去重（所有文件所有 Sheet 合并后去重）
+	//   OutputPerKeyword                -> 每个关键词的输出文件内部去重
+	//   OutputPerSource                 -> 每个源文件的输出文件内部去重
+	//   OutputTargetInplaceSheets       -> 新 Sheet 内部去重
+	//
+	// 跨文件 schema 不一致时（A 文件有该列名、B 没有）：B 文件的行全部保留 + warning 日志，
+	// 保证数据不丢；用户能从日志里看到哪些文件未参与去重。
+	DedupColumn string
 }
 
 // SplitTask 单文件拆分任务。
@@ -140,6 +153,11 @@ type SplitTask struct {
 
 	// 高级筛选（V1.5+）：仅 SplitByKeyword 模式生效；其他三模式 splitter 内部忽略。
 	AdvancedFilter *AdvancedFilterSpec
+
+	// 去重列（V1.1+）：仅 SplitByKeyword 模式生效；其他三模式 splitter 内部忽略。
+	// 语义跟 ExtractTask.DedupColumn 一致：按列名 strict 比较，保留首次出现的行。
+	// 每个关键词的输出文件独立去重（跟 Extract OutputPerKeyword 策略一致）。
+	DedupColumn string
 }
 
 // Progress 任务进度快照。Done == Total 表示完成。
