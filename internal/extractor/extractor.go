@@ -26,7 +26,9 @@ func Extract(ctx context.Context, task core.ExtractTask, emitter core.EventEmitt
 	}
 
 	// 1. 扫描（每个文件按 Sheet 展开为多个单元，受 task.SheetNames 过滤）
+	pipeline.LogMem(emitter, "task start")
 	emitter.Progress(core.Progress{Stage: "scanning", Message: "扫描文件夹"})
+	tScan := time.Now()
 	files, err := scanFolderInteractive(ctx, task.FolderPath, task.HeaderRow, task.SheetNames, emitter)
 	if err != nil {
 		return nil, err
@@ -34,6 +36,9 @@ func Extract(ctx context.Context, task core.ExtractTask, emitter core.EventEmitt
 	if len(files) == 0 {
 		return nil, core.New("NO_FILES", "文件夹内没有可处理的 Sheet（检查 .xlsx 文件 / Sheet 选择）")
 	}
+	emitter.Log(core.LogInfo, fmt.Sprintf("[TIMING] 扫描源路径 %v: %d 个 Sheet",
+		time.Since(tScan).Round(time.Millisecond), len(files)))
+	pipeline.LogMem(emitter, "after probe")
 	// 大文件前置警告（不阻断业务）：把"将处理多大数据 / 大概等多久"提前告诉用户，
 	// 避免学员看到 UI 不动以为程序卡死。仅按"去重路径"统计，避免一个文件多 sheet 重复计入。
 	pipeline.SizeBanner(emitter, distinctFilePaths(files))
@@ -159,7 +164,9 @@ func ExtractUnits(
 	result.FilesMatched = len(matchedPaths)
 
 	// 7. 落盘
+	pipeline.LogMem(emitter, "before finalize")
 	emitter.Progress(core.Progress{Stage: "finalizing", Done: total, Total: total, Message: "写入输出文件"})
+	tFinalize := time.Now()
 	var paths []string
 	if pf, ok := ow.(PromptFinalizer); ok {
 		paths, err = pf.FinalizeWithPrompt(ctx, emitter)
@@ -169,6 +176,9 @@ func ExtractUnits(
 	if err != nil {
 		return nil, err
 	}
+	emitter.Log(core.LogInfo, fmt.Sprintf("[TIMING] finalize %v: 输出 %d 个文件",
+		time.Since(tFinalize).Round(time.Millisecond), len(paths)))
+	pipeline.LogMem(emitter, "after finalize")
 	result.OutputFiles = paths
 	result.ImagesMigrated = imgCounterFn()
 
@@ -320,6 +330,7 @@ func processFile(
 	}
 	emitter.Log(core.LogInfo, fmt.Sprintf("[TIMING] 扫描匹配 %v: %d 行 -> 命中 %d 行",
 		time.Since(tScan).Round(time.Millisecond), lastRowNum, len(matchedRows)))
+	pipeline.LogMem(emitter, "after scan: "+fs.File.SheetName)
 
 	// 阶段 3：按需从 zip 直读命中行的图片字节。新路径完全绕过 excelize.GetPictures，
 	// 预计把 O(N²) 的 anchor 扫描 + 重复 image.DecodeConfig 压缩到 O(命中行)。
