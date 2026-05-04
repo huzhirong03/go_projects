@@ -264,33 +264,24 @@ func processFile(
 
 	fileSearchCols := fs.FileSearchColumns(unifiedSearchCols)
 
-	// 阶段 1.5：sheet 级公式预检。
-	// fixture 01 (10万行学生表) 完全没公式，但原代码对每命中行仍跑 14 次 excelize.CellFormula，
-	// 命中 14286 行时累计 20 万次浪费。这里一次性扫 zip 里的 sheetN.xml（流式读，遇到 <f>
-	// 立即退出），把"是否有公式"压到一个 bool。
-	// 探测失败（zip 损坏 / 不标准结构）时 hasFormulas=true 保守走原路径，公式零回归。
+	// 阶段 1.5 + 1.8（B5 合并）：一次 zip 扫描同时产出"是否含公式"和"自定义行高 map"。
+	// 合并前两阶段各 2.3~2.4s，独立 zip.OpenReader + xml.Decoder 扫同一份 sheetN.xml；
+	// 合并后单次扫描约 2.4s 直接搞定两件事。
+	//
+	// 语义保留：
+	//   - hasFormulas=true 时 extractor 仍走 readRowFormulas 保留公式（fixture 02 零回归）
+	//   - heightMap 命中即用；nil 时降级到 r.RowHeight 逐行查询（行为完全一致）
+	//
+	// 失败策略：探测失败时按"含公式 + 空行高"保守处理，确保公式业务不丢，性能降级可接受。
 	tProbe := time.Now()
-	hasFormulas, probeErr := r.SheetHasFormulas(fs.File.SheetName)
+	hasFormulas, heightMap, probeErr := r.ProbeSheet(fs.File.SheetName)
 	if probeErr != nil {
-		emitter.Log(core.LogWarn, "公式预检失败，按\"含公式\"保守处理: "+probeErr.Error())
+		emitter.Log(core.LogWarn, "sheet 预检失败，按\"含公式+空行高\"保守处理: "+probeErr.Error())
 		hasFormulas = true
-	}
-	emitter.Log(core.LogInfo, fmt.Sprintf("[TIMING] 公式预检 %v: has=%v",
-		time.Since(tProbe).Round(time.Millisecond), hasFormulas))
-
-	// 阶段 1.8：sheet 级行高批量预读。
-	// excelize.GetRowHeight 内部是 O(N) 线性扫 sheet data；fixture 01 命中 14286 行
-	// x 100k 行 sheet 累计 11.89 秒（平均 832µs/次）。这里一次 zip 流式扫 <row ht="...">
-	// 把结果压成 map[rowNum]height，命中行 O(1) 查询。
-	// 预读失败时 heightMap=nil，循环里降级到单次 r.RowHeight 原路径（行为一致，仅慢）。
-	tHeights := time.Now()
-	heightMap, heightsErr := r.RowHeights(fs.File.SheetName)
-	if heightsErr != nil {
-		emitter.Log(core.LogWarn, "行高预读失败，降级到逐行查询: "+heightsErr.Error())
 		heightMap = nil
 	}
-	emitter.Log(core.LogInfo, fmt.Sprintf("[TIMING] 行高预读 %v: %d 行自定义高度",
-		time.Since(tHeights).Round(time.Millisecond), len(heightMap)))
+	emitter.Log(core.LogInfo, fmt.Sprintf("[TIMING] sheet 预检 %v: hasFormulas=%v, 自定义行高=%d 行",
+		time.Since(tProbe).Round(time.Millisecond), hasFormulas, len(heightMap)))
 
 	// 阶段 2：流式行迭代，收集命中行到内存（不加载图片字节）。
 	it, err := r.Iterate(fs.File.SheetName)
