@@ -60,6 +60,10 @@ type Reader struct {
 	// zip 里的 sheetN.xml；没有公式的 sheet 在 extractor 扫描时会跳过整个 readRowFormulas
 	// 循环，fixture 01 (100k 行，14 命中列) 约省 10-40 秒的 excelize.CellFormula 调用。
 	formulaProbeCache map[string]bool
+	// rowHeightMapCache 缓存 RowHeights 的结果。同一 Reader 上同 sheet 只扫一次 zip；
+	// 之后每命中行用 O(1) hash 查 map 替代 excelize.GetRowHeight 的 O(N) linear scan，
+	// fixture 01 约省 10 秒（14286 命中 × 每次 832µs = 11.9s → 1 次 2s）。
+	rowHeightMapCache map[string]map[int]float64
 }
 
 // Open 以只读模式打开一个 xlsx 文件。

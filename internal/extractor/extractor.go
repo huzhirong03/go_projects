@@ -278,6 +278,20 @@ func processFile(
 	emitter.Log(core.LogInfo, fmt.Sprintf("[TIMING] 公式预检 %v: has=%v",
 		time.Since(tProbe).Round(time.Millisecond), hasFormulas))
 
+	// 阶段 1.8：sheet 级行高批量预读。
+	// excelize.GetRowHeight 内部是 O(N) 线性扫 sheet data；fixture 01 命中 14286 行
+	// x 100k 行 sheet 累计 11.89 秒（平均 832µs/次）。这里一次 zip 流式扫 <row ht="...">
+	// 把结果压成 map[rowNum]height，命中行 O(1) 查询。
+	// 预读失败时 heightMap=nil，循环里降级到单次 r.RowHeight 原路径（行为一致，仅慢）。
+	tHeights := time.Now()
+	heightMap, heightsErr := r.RowHeights(fs.File.SheetName)
+	if heightsErr != nil {
+		emitter.Log(core.LogWarn, "行高预读失败，降级到逐行查询: "+heightsErr.Error())
+		heightMap = nil
+	}
+	emitter.Log(core.LogInfo, fmt.Sprintf("[TIMING] 行高预读 %v: %d 行自定义高度",
+		time.Since(tHeights).Round(time.Millisecond), len(heightMap)))
+
 	// 阶段 2：流式行迭代，收集命中行到内存（不加载图片字节）。
 	it, err := r.Iterate(fs.File.SheetName)
 	if err != nil {
@@ -335,7 +349,18 @@ func processFile(
 			formulas = readRowFormulas(r, fs.File.SheetName, it.RowNum(), len(cells))
 		}
 		values := fs.AlignRowWithFormulas(cells, formulas, len(schema.Columns))
-		height, _, _ := r.RowHeight(fs.File.SheetName, it.RowNum())
+
+		// B3：heightMap 命中即 O(1) 拿到自定义高度；预读失败或无该行 → 默认 height=0。
+		// map 里只有显式设过 ht 的行（排除了 15.0 和 0），和 r.RowHeight 语义一致。
+		// heightMap=nil（预读失败）时降级到 r.RowHeight，行为与 B3 前完全等价。
+		var height float64
+		if heightMap != nil {
+			if h, ok := heightMap[it.RowNum()]; ok {
+				height = h
+			}
+		} else {
+			height, _, _ = r.RowHeight(fs.File.SheetName, it.RowNum())
+		}
 
 		matchedRows = append(matchedRows, stagedRow{
 			rowNum: it.RowNum(),
