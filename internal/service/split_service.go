@@ -93,9 +93,6 @@ func buildSplitTask(req SplitRequest) (core.SplitTask, error) {
 		if req.Contains {
 			mm |= core.MatchContains
 		}
-		if req.Pinyin {
-			mm |= core.MatchPinyin
-		}
 		if mm == 0 {
 			mm = core.MatchContains // 默认包含
 		}

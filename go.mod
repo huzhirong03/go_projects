@@ -3,7 +3,6 @@ module excel-master
 go 1.23.0
 
 require (
-	github.com/mozillazg/go-pinyin v0.21.0
 	github.com/saintfish/chardet v0.0.0-20230101081208-5e3ef4b5456d
 	github.com/wailsapp/wails/v2 v2.12.0
 	github.com/xuri/excelize/v2 v2.9.0

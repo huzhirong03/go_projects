@@ -192,9 +192,6 @@ func buildExtractTask(req ExtractRequest) (core.ExtractTask, error) {
 	if req.Contains {
 		mode |= core.MatchContains
 	}
-	if req.Pinyin {
-		mode |= core.MatchPinyin
-	}
 	if mode == 0 {
 		mode = core.MatchContains // 默认包含
 	}

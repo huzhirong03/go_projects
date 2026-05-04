@@ -151,6 +151,10 @@ func (s *ZipImageSource) parseWorkbook() error {
 
 // LoadSheetAnchors 解析指定 sheet 的 drawing 信息。幂等。
 // 若 sheet 没有关联 drawing（没图），返回 nil 且索引为空。
+//
+// 性能注意：旧实现先解压整个 sheetN.xml（10 万行可能 65MB+）只为读根节点
+// 上的 <drawing r:id=".."/> 一个标签；现在改为直接看 sheetN.xml.rels（几 KB），
+// 没有 Type 含 "/drawing" 的 Relationship 就立即返回——大幅降低无图文件的成本。
 func (s *ZipImageSource) LoadSheetAnchors(sheet string) error {
 	if _, ok := s.sheetIdx[sheet]; ok {
 		return nil
@@ -165,27 +169,13 @@ func (s *ZipImageSource) LoadSheetAnchors(sheet string) error {
 	if !ok {
 		return nil // 未知 sheet，允许静默跳过
 	}
-	// sheetN.xml.rels 里找 drawing rId → target
 	// sheet 路径形如 "xl/worksheets/sheet1.xml"，rels 路径 "xl/worksheets/_rels/sheet1.xml.rels"
 	sheetDir, sheetBase := pathSplit(sheetPath)
 	relsPath := sheetDir + "_rels/" + sheetBase + ".rels"
-	sheetBytes, err := s.readZipFile(sheetPath)
-	if err != nil {
-		return err
-	}
-	// <drawing r:id="rIdX"/> 直接在 worksheet 根
-	type wsDrawing struct {
-		RID string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr"`
-	}
-	type ws struct {
-		Drawing *wsDrawing `xml:"drawing"`
-	}
-	var w ws
-	if err := xml.Unmarshal(sheetBytes, &w); err != nil {
-		return core.Wrap("ZIP_PARSE_FAILED", "解析 "+sheetPath+" 失败", err)
-	}
-	if w.Drawing == nil || w.Drawing.RID == "" {
-		return nil // 这个 sheet 没有图
+
+	// FAST PATH: rels 文件不存在 = 该 sheet 完全没有外部关系（必然没图），直接返回。
+	if _, ok := s.fileByPath[relsPath]; !ok {
+		return nil
 	}
 	relsBytes, err := s.readZipFile(relsPath)
 	if err != nil {
@@ -194,6 +184,7 @@ func (s *ZipImageSource) LoadSheetAnchors(sheet string) error {
 	type wsRel struct {
 		ID     string `xml:"Id,attr"`
 		Target string `xml:"Target,attr"`
+		Type   string `xml:"Type,attr"`
 	}
 	type wsRels struct {
 		Rels []wsRel `xml:"Relationship"`
@@ -202,15 +193,18 @@ func (s *ZipImageSource) LoadSheetAnchors(sheet string) error {
 	if err := xml.Unmarshal(relsBytes, &sheetRels); err != nil {
 		return core.Wrap("ZIP_PARSE_FAILED", "解析 "+relsPath+" 失败", err)
 	}
+	// 直接找 Type 含 "/drawing" 的 Relationship——OOXML 标准里一个 sheet 至多
+	// 一个 <drawing> 元素，所以 rels 里也至多一个 drawing 关系。这样省掉解压
+	// sheet1.xml 拿 r:id 再回查 rels 这一整套大开销动作。
 	var drawingRel string
 	for _, r := range sheetRels.Rels {
-		if r.ID == w.Drawing.RID {
+		if strings.Contains(r.Type, "/drawing") {
 			drawingRel = r.Target
 			break
 		}
 	}
 	if drawingRel == "" {
-		return nil
+		return nil // 没图
 	}
 	drawingPath := resolveRelTarget(sheetDir, drawingRel)
 	idx.drawingXML = drawingPath

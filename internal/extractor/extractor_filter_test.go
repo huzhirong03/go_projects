@@ -35,8 +35,8 @@ func TestExtract_FilterAfterKeyword_AND(t *testing.T) {
 
 	task := core.ExtractTask{
 		FolderPath:    src,
-		Keywords:      []string{"口红", "fd"}, // 旧测试 4 行命中
-		MatchMode:     core.MatchContains | core.MatchPinyin,
+		Keywords:      []string{"口红", "粉底"}, // 旧测试 4 行命中
+		MatchMode:     core.MatchContains,
 		SearchAllCols: true,
 		Output:        core.OutputMerged,
 		OutputDir:     out,
@@ -124,8 +124,8 @@ func TestExtract_FilterPartialMissingColumn(t *testing.T) {
 	src := buildTestFolder(t)
 	out := t.TempDir()
 	task := core.ExtractTask{
-		FolderPath: src, Keywords: []string{"口红", "fd"},
-		MatchMode: core.MatchContains | core.MatchPinyin, SearchAllCols: true,
+		FolderPath: src, Keywords: []string{"口红", "粉底"},
+		MatchMode: core.MatchContains, SearchAllCols: true,
 		Output: core.OutputMerged, OutputDir: out, HeaderRow: 1,
 		// 两个条件：型号 (file3 没有) + 价格 (所有文件都有)
 		AdvancedFilter: &core.AdvancedFilterSpec{
@@ -178,8 +178,8 @@ func TestExtract_NilFilter_Regression(t *testing.T) {
 	src := buildTestFolder(t)
 	out := t.TempDir()
 	task := core.ExtractTask{
-		FolderPath: src, Keywords: []string{"口红", "fd"},
-		MatchMode: core.MatchContains | core.MatchPinyin, SearchAllCols: true,
+		FolderPath: src, Keywords: []string{"口红", "粉底"},
+		MatchMode: core.MatchContains, SearchAllCols: true,
 		Output: core.OutputMerged, OutputDir: out, HeaderRow: 1,
 		AdvancedFilter: nil, // 显式 nil
 	}
@@ -198,8 +198,8 @@ func TestExtract_FilterModeAny(t *testing.T) {
 	src := buildTestFolder(t)
 	out := t.TempDir()
 	task := core.ExtractTask{
-		FolderPath: src, Keywords: []string{"口红", "fd"},
-		MatchMode: core.MatchContains | core.MatchPinyin, SearchAllCols: true,
+		FolderPath: src, Keywords: []string{"口红", "粉底"},
+		MatchMode: core.MatchContains, SearchAllCols: true,
 		Output: core.OutputMerged, OutputDir: out, HeaderRow: 1,
 		AdvancedFilter: &core.AdvancedFilterSpec{
 			Mode: "any", // 任一满足

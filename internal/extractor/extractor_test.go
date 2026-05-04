@@ -116,8 +116,8 @@ func TestExtract_PerKeyword_WithImages(t *testing.T) {
 
 	task := core.ExtractTask{
 		FolderPath:     src,
-		Keywords:       []string{"口红", "fd"}, // fd = 粉底 的拼音首字母
-		MatchMode:      core.MatchExact | core.MatchContains | core.MatchPinyin,
+		Keywords:       []string{"口红", "粉底"},
+		MatchMode:      core.MatchExact | core.MatchContains,
 		SearchAllCols:  true,
 		Output:         core.OutputPerKeyword,
 		OutputDir:      out,
@@ -137,7 +137,7 @@ func TestExtract_PerKeyword_WithImages(t *testing.T) {
 	if result.ImagesMigrated != 2 {
 		t.Errorf("ImagesMigrated = %d, want 2", result.ImagesMigrated)
 	}
-	// 输出文件：2 个（口红_*.xlsx 和 fd_*.xlsx）
+	// 输出文件：2 个（口红_*.xlsx 和 粉底_*.xlsx）
 	if len(result.OutputFiles) != 2 {
 		t.Fatalf("OutputFiles = %d, want 2: %v", len(result.OutputFiles), result.OutputFiles)
 	}

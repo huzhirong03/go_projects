@@ -9,7 +9,7 @@ import (
 // Engine 是一个多关键词、多模式的匹配引擎。
 // 典型用法：
 //
-//	eng := matcher.NewEngine([]string{"口红", "kouhong"}, core.MatchExact|core.MatchContains|core.MatchPinyin)
+//	eng := matcher.NewEngine([]string{"口红"}, core.MatchExact|core.MatchContains)
 //	if kw := eng.Match("哑光口红 A12"); kw != "" { ... }
 //
 // Match 一旦找到命中就返回对应的关键词（原始输入的那个），不会继续试其他关键词。
@@ -19,10 +19,8 @@ type Engine struct {
 }
 
 type keywordEntry struct {
-	raw      string // 原始关键词（返回给调用方的那个）
-	lowered  string // 小写版本，用于 exact/contains
-	pinyin   string // 全拼小写
-	initials string // 首字母小写
+	raw     string // 原始关键词（返回给调用方的那个）
+	lowered string // 小写版本，用于 exact/contains
 }
 
 // NewEngine 构造引擎。keywords 和 mode 都不能为空。
@@ -37,15 +35,10 @@ func NewEngine(keywords []string, mode core.MatchMode) *Engine {
 		if kw == "" {
 			continue
 		}
-		e := keywordEntry{
+		entries = append(entries, keywordEntry{
 			raw:     kw,
 			lowered: strings.ToLower(kw),
-		}
-		if mode.Has(core.MatchPinyin) {
-			e.pinyin = ToFullPinyin(kw)
-			e.initials = ToInitials(kw)
-		}
-		entries = append(entries, e)
+		})
 	}
 	return &Engine{keywords: entries, mode: mode}
 }
@@ -71,11 +64,6 @@ func (e *Engine) Match(text string) string {
 		return ""
 	}
 	lowered := strings.ToLower(text)
-	var textPinyin, textInitials string
-	if e.mode.Has(core.MatchPinyin) {
-		textPinyin = ToFullPinyin(text)
-		textInitials = ToInitials(text)
-	}
 
 	for _, k := range e.keywords {
 		if e.mode.Has(core.MatchExact) {
@@ -85,15 +73,6 @@ func (e *Engine) Match(text string) string {
 		}
 		if e.mode.Has(core.MatchContains) {
 			if strings.Contains(lowered, k.lowered) {
-				return k.raw
-			}
-		}
-		if e.mode.Has(core.MatchPinyin) {
-			// 拼音子串匹配（支持全拼和首字母）。
-			if k.pinyin != "" && strings.Contains(textPinyin, k.pinyin) {
-				return k.raw
-			}
-			if k.initials != "" && strings.Contains(textInitials, k.initials) {
 				return k.raw
 			}
 		}

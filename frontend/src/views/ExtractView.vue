@@ -30,7 +30,6 @@ const defaults = {
     keywordsRaw: '',
     exact: true,
     contains: true,
-    pinyin: true,
     headerRow: 1,
     searchAllCols: true,
     searchColumns: [],
@@ -281,7 +280,7 @@ async function submit() {
     if (!form.keywordsRaw.trim() && !hasActiveFilter.value) {
         return showToast('请至少填写一个关键词或一条高级筛选条件', 'warn')
     }
-    if (form.keywordsRaw.trim() && !form.exact && !form.contains && !form.pinyin) {
+    if (form.keywordsRaw.trim() && !form.exact && !form.contains) {
         return showToast('请至少选择一种匹配模式', 'warn')
     }
     if (previewState.sheets.length > 1 && form.sheetNames.length === 0) {
@@ -295,7 +294,6 @@ async function submit() {
             keywordsRaw: form.keywordsRaw,
             exact: form.exact,
             contains: form.contains,
-            pinyin: form.pinyin,
             searchAllCols: form.searchAllCols,
             searchColumns: form.searchAllCols ? [] : form.searchColumns,
             strategy: form.strategy,
@@ -361,14 +359,13 @@ async function submit() {
                 <div class="field">
                     <label class="field-label">关键词（逗号/空格/顿号分隔）</label>
                     <textarea v-model="form.keywordsRaw" rows="2"
-                              placeholder="例如：口红, 眼影, fd"></textarea>
+                              placeholder="例如：口红, 眼影, 粉底"></textarea>
                 </div>
                 <div class="field">
                     <label class="field-label">匹配模式</label>
                     <div class="inline-group match-group">
                         <label><input type="checkbox" v-model="form.exact" /> 精准</label>
                         <label><input type="checkbox" v-model="form.contains" /> 包含</label>
-                        <label><input type="checkbox" v-model="form.pinyin" /> 拼音（含首字母）</label>
                     </div>
                 </div>
             </div>

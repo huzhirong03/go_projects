@@ -30,18 +30,6 @@ func TestParseKeywords(t *testing.T) {
 	}
 }
 
-func TestPinyinConversion(t *testing.T) {
-	if got := ToFullPinyin("口红"); got != "kouhong" {
-		t.Errorf("ToFullPinyin(口红) = %q, want kouhong", got)
-	}
-	if got := ToInitials("哑光口红"); got != "ygkh" {
-		t.Errorf("ToInitials(哑光口红) = %q, want ygkh", got)
-	}
-	if got := ToFullPinyin("口红 A12"); got != "kouhong a12" {
-		t.Errorf("ToFullPinyin(口红 A12) = %q, want 'kouhong a12'", got)
-	}
-}
-
 func TestEngineModes(t *testing.T) {
 	type tc struct {
 		name    string
@@ -55,12 +43,9 @@ func TestEngineModes(t *testing.T) {
 		{"精准-不命中", []string{"口红"}, core.MatchExact, "哑光口红", ""},
 		{"包含-命中", []string{"口红"}, core.MatchContains, "哑光口红 A12", "口红"},
 		{"包含-大小写不敏感", []string{"ABC"}, core.MatchContains, "xAbCy", "ABC"},
-		{"拼音全拼-命中", []string{"kouhong"}, core.MatchPinyin, "哑光口红", "kouhong"},
-		{"拼音首字母-命中", []string{"kh"}, core.MatchPinyin, "哑光口红", "kh"},
-		{"拼音-非中文不被误杀", []string{"abc"}, core.MatchPinyin, "abcxyz", "abc"},
-		{"组合模式-命中任一", []string{"kouhong"}, core.MatchExact | core.MatchContains | core.MatchPinyin, "哑光口红", "kouhong"},
 		{"多关键词-命中其二", []string{"口红", "粉底"}, core.MatchContains, "XX 粉底 YY", "粉底"},
-		{"全部不命中", []string{"xyz"}, core.MatchContains | core.MatchPinyin, "口红 A12", ""},
+		{"全部不命中", []string{"xyz"}, core.MatchContains, "口红 A12", ""},
+		{"中文子串模糊-多关键词", []string{"貔", "貅"}, core.MatchContains, "亮铜貔貅", "貔"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

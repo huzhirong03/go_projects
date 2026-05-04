@@ -11,13 +11,12 @@ package service
 import "excel-master/internal/core"
 
 // ExtractRequest 是前端请求批量提取时提交的 DTO。
-// 字段全部使用 JSON 友好类型，匹配模式用三个独立布尔而非位掩码。
+// 字段全部使用 JSON 友好类型，匹配模式用两个独立布尔而非位掩码。
 type ExtractRequest struct {
 	FolderPath     string   `json:"folderPath"`
 	KeywordsRaw    string   `json:"keywordsRaw"` // 用户原始输入，服务端用 matcher.ParseKeywords 切分
 	Exact          bool     `json:"exact"`
 	Contains       bool     `json:"contains"`
-	Pinyin         bool     `json:"pinyin"`
 	SearchAllCols  bool     `json:"searchAllCols"`
 	SearchColumns  []string `json:"searchColumns"`
 	Strategy       string   `json:"strategy"` // per_keyword / merged / per_source
@@ -58,7 +57,6 @@ type SplitRequest struct {
 	KeywordsRaw   string   `json:"keywordsRaw"`
 	Exact         bool     `json:"exact"`
 	Contains      bool     `json:"contains"`
-	Pinyin        bool     `json:"pinyin"`
 	SearchAllCols bool     `json:"searchAllCols"`
 	SearchColumns []string `json:"searchColumns"`
 	Strategy      string   `json:"strategy"`

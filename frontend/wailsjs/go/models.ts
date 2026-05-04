@@ -57,7 +57,6 @@ export namespace service {
 	    keywordsRaw: string;
 	    exact: boolean;
 	    contains: boolean;
-	    pinyin: boolean;
 	    searchAllCols: boolean;
 	    searchColumns: string[];
 	    strategy: string;
@@ -82,7 +81,6 @@ export namespace service {
 	        this.keywordsRaw = source["keywordsRaw"];
 	        this.exact = source["exact"];
 	        this.contains = source["contains"];
-	        this.pinyin = source["pinyin"];
 	        this.searchAllCols = source["searchAllCols"];
 	        this.searchColumns = source["searchColumns"];
 	        this.strategy = source["strategy"];
@@ -160,7 +158,6 @@ export namespace service {
 	    keywordsRaw: string;
 	    exact: boolean;
 	    contains: boolean;
-	    pinyin: boolean;
 	    searchAllCols: boolean;
 	    searchColumns: string[];
 	    strategy: string;
@@ -187,7 +184,6 @@ export namespace service {
 	        this.keywordsRaw = source["keywordsRaw"];
 	        this.exact = source["exact"];
 	        this.contains = source["contains"];
-	        this.pinyin = source["pinyin"];
 	        this.searchAllCols = source["searchAllCols"];
 	        this.searchColumns = source["searchColumns"];
 	        this.strategy = source["strategy"];

@@ -132,12 +132,10 @@ func parseMode(s string) (core.MatchMode, error) {
 		return core.MatchExact, nil
 	case "contains":
 		return core.MatchContains, nil
-	case "pinyin":
-		return core.MatchPinyin, nil
 	case "all", "":
-		return core.MatchExact | core.MatchContains | core.MatchPinyin, nil
+		return core.MatchExact | core.MatchContains, nil
 	default:
-		return 0, fmt.Errorf("未知匹配模式: %s（可选：exact/contains/pinyin/all）", s)
+		return 0, fmt.Errorf("未知匹配模式: %s（可选：exact/contains/all）", s)
 	}
 }
 
@@ -161,9 +159,6 @@ func formatMode(m core.MatchMode) string {
 	}
 	if m.Has(core.MatchContains) {
 		parts = append(parts, "包含")
-	}
-	if m.Has(core.MatchPinyin) {
-		parts = append(parts, "拼音")
 	}
 	if len(parts) == 0 {
 		return "(未指定)"

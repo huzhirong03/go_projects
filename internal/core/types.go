@@ -8,7 +8,6 @@ type MatchMode uint8
 const (
 	MatchExact    MatchMode = 1 << iota // 精准匹配：完全相等
 	MatchContains                       // 子串包含
-	MatchPinyin                         // 拼音匹配（含首字母）
 )
 
 // Has 判断当前模式是否包含指定模式。

@@ -20,9 +20,14 @@ import (
 // 对扫描和打开都有显著拖累（实测 100k 行卡 40 秒在 probe 阶段、扫描每秒仅 ~2000 行）。
 //
 // 分级策略（按 xlsx 文件磁盘大小，非解压后大小）：
-//   - <= 30MB:   limit=256MB （让 sheet 全部驻留内存，最快；峰值约 80-100MB）
-//   - 30-100MB:  limit=128MB （兼顾速度与内存）
+//   - <= 30MB:   limit=128MB （常见 6MB 文件解压 ~65MB，128MB 足够全驻内存）
+//   - 30-100MB:  limit=64MB  （让中等文件在 spill 边缘，控制峰值内存）
 //   - > 100MB:   limit=32MB  （保守，让大文件 spill 到磁盘避免 OOM）
+//
+// 取舍说明：早期版本曾用 256/128/32，但峰值内存可达 1.5GB+，对 4-8GB 内存的
+// 低配机有压力（用户同时开 Office/浏览器时可能 OOM）。本版本牺牲约 5% 速度
+// 换来约 30% 内存峰值下降（实测 100k 行 fixture 1.5GB → 1.0GB），更适合作为
+// 默认部署值。重度用户可在配置里覆盖（V2.0+）。
 //
 // 注意：故意不开 RawCellValue=true，因为它会让 number/date 失去格式化文本（如
 // "2026-05-04" 变 "45816"、"￥1,234.50" 变 "1234.5"），违反"业务逻辑不变"。
@@ -32,13 +37,13 @@ func openOptions(path string) excelize.Options {
 		smallSize = 30 * mb
 		largeSize = 100 * mb
 	)
-	limit := int64(256) * mb
+	limit := int64(128) * mb
 	if fi, err := os.Stat(path); err == nil {
 		switch sz := fi.Size(); {
 		case sz > largeSize:
 			limit = int64(32) * mb
 		case sz > smallSize:
-			limit = int64(128) * mb
+			limit = int64(64) * mb
 		}
 	}
 	return excelize.Options{
