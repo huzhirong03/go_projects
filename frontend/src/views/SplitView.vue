@@ -364,8 +364,9 @@ async function submit() {
                             :title="inplaceDisabledReason"
                             @click="inplaceAvailable && (form.outputTarget = 'inplace_sheets')">📑 写回源文件新 Sheet</button>
                 </div>
-                <label v-if="isInplace" class="keep-images" style="margin-left:auto">
-                    <input type="checkbox" v-model="form.backupSource" /> 写回前先备份源文件 (.bak)
+                <label v-if="isInplace" class="keep-images" style="margin-left:auto"
+                       title="备份命名：原文件名_备份_年月日_时分秒.xlsx（同目录）。双击可直接用 Excel 打开；多次跑不会互相覆盖。">
+                    <input type="checkbox" v-model="form.backupSource" /> 写回前先备份源文件
                 </label>
             </div>
         </Collapsible>

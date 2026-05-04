@@ -89,6 +89,12 @@ defineExpose({
 
 // 当前操作符的"值形态"
 function valueKind(c) { return OP_VALUE_KIND[c.op] || 'single' }
+
+// 返回当前选中操作符的 hint，用于在条件行下方展示说明。
+function currentOpHint(c) {
+    const op = OPERATOR_OPTIONS.find(o => o.value === c.op)
+    return op ? op.hint : ''
+}
 </script>
 
 <template>
@@ -112,7 +118,8 @@ function valueKind(c) { return OP_VALUE_KIND[c.op] || 'single' }
         </div>
 
         <div class="cond-list">
-            <div v-for="(c, i) in spec.conditions" :key="i" class="cond-row">
+            <template v-for="(c, i) in spec.conditions" :key="i">
+            <div class="cond-row">
                 <!-- 列名：优先下拉，回退手动输入 -->
                 <input v-if="columns.length === 0" type="text" class="col-input"
                        placeholder="列名" :value="c.column"
@@ -123,11 +130,12 @@ function valueKind(c) { return OP_VALUE_KIND[c.op] || 'single' }
                     <option v-for="col in columns" :key="col" :value="col">{{ col }}</option>
                 </select>
 
-                <!-- 操作符 -->
+                <!-- 操作符（每个 option 带 title 原生 tooltip：hover ~1s 弹出说明） -->
                 <select class="op-input" :value="c.op"
-                        @change="onOpChange(i, $event.target.value)">
+                        @change="onOpChange(i, $event.target.value)"
+                        :title="currentOpHint(c)">
                     <optgroup v-for="(opts, group) in groupedOperators" :key="group" :label="group">
-                        <option v-for="o in opts" :key="o.value" :value="o.value">{{ o.label }}</option>
+                        <option v-for="o in opts" :key="o.value" :value="o.value" :title="o.hint">{{ o.label }}</option>
                     </optgroup>
                 </select>
 
@@ -158,7 +166,7 @@ function valueKind(c) { return OP_VALUE_KIND[c.op] || 'single' }
                     <select class="val-input val-format" :value="c.format"
                             @change="updateCondition(i, { format: $event.target.value })">
                         <option value="">— 选择格式 —</option>
-                        <option v-for="o in FORMAT_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
+                        <option v-for="o in FORMAT_OPTIONS" :key="o.value" :value="o.value" :title="o.hint">{{ o.label }}</option>
                     </select>
                 </template>
                 <template v-else-if="valueKind(c) === 'none'">
@@ -167,6 +175,9 @@ function valueKind(c) { return OP_VALUE_KIND[c.op] || 'single' }
 
                 <button type="button" class="btn-del" @click="removeCondition(i)" title="删除此条件">✕</button>
             </div>
+            <!-- 当前 op 说明行：永久可见，不依赖 hover，与下拉 tooltip 双保险 -->
+            <div v-if="currentOpHint(c)" class="cond-hint">⤷ {{ currentOpHint(c) }}</div>
+            </template>
 
             <button type="button" class="btn-add" @click="addCondition">+ 添加条件</button>
         </div>
@@ -219,6 +230,15 @@ function valueKind(c) { return OP_VALUE_KIND[c.op] || 'single' }
     display: flex;
     flex-direction: column;
     gap: 6px;
+}
+.cond-hint {
+    /* 当前操作符的永久可见说明：缩进对齐操作符位置，淺色辅助字 */
+    padding: 0 0 4px 130px;
+    margin-top: -2px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+    user-select: none;
 }
 .cond-row {
     display: flex;

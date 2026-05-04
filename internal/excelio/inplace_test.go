@@ -3,6 +3,7 @@ package excelio
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/xuri/excelize/v2"
@@ -277,15 +278,32 @@ func TestBackupCopy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bak != src+".bak" {
-		t.Fatalf("期望 %s.bak，实际 %s", src, bak)
+	// 新命名：<dir>/src_备份_<时间戳>.txt（保留原扩展名 .txt）
+	if filepath.Dir(bak) != dir {
+		t.Fatalf("备份应在源目录：%s vs %s", filepath.Dir(bak), dir)
+	}
+	if filepath.Ext(bak) != ".txt" {
+		t.Fatalf("备份应保留原扩展名 .txt：%s", bak)
+	}
+	if !strings.Contains(filepath.Base(bak), "src_备份_") {
+		t.Fatalf("备份命名应含 src_备份_ 前缀：%s", bak)
 	}
 	got, _ := os.ReadFile(bak)
 	if string(got) != "hello" {
 		t.Fatalf("备份内容错误: %q", got)
 	}
-	// 覆盖：第二次调用成功
-	if _, err := BackupCopy(src); err != nil {
-		t.Fatalf("第二次 BackupCopy 应覆盖: %v", err)
+	// 第二次调用：不应覆盖第一次（时间戳或序号会让两次路径不同），两个备份都应存在
+	bak2, err := BackupCopy(src)
+	if err != nil {
+		t.Fatalf("第二次 BackupCopy 失败: %v", err)
+	}
+	if bak2 == bak {
+		t.Fatalf("两次备份路径不应相同（应避让覆盖）：%s", bak)
+	}
+	if _, err := os.Stat(bak); err != nil {
+		t.Fatalf("第一次备份不应被覆盖删除：%v", err)
+	}
+	if _, err := os.Stat(bak2); err != nil {
+		t.Fatalf("第二次备份应存在：%v", err)
 	}
 }

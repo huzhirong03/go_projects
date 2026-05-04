@@ -11,6 +11,24 @@
 
 ---
 
+## [v1.2.1] - 2026-05-05
+
+### 修改 (Changed)
+
+- **inplace 备份命名升级**：从 `源文件.xlsx.bak` 改成 `源文件名_备份_yyyyMMdd_HHmmss.xlsx`
+  - 保留原扩展名（.xlsx → .xlsx），双击可直接用 Excel 打开（不再需要手动改后缀）
+  - 多次 inplace 不互相覆盖，时间戳让每次备份成为独立的"版本快照"
+  - 防同秒撞名：脚本连跑时尾部追加 `_2 _3 ...` 序号
+  - UI 标签从 "写回前先备份源文件 (.bak)" 简化为 "写回前先备份源文件"，并加 hover 提示说明命名规则
+- 单点修改 `internal/excelio/inplace.go` 的 `BackupCopy()` 函数，批量提取和单文件拆分两边自动同步生效
+
+### 测试 (Tests)
+
+- `TestBackupCopy`: 验证保留扩展名、命名含 `_备份_`、两次调用产生不同文件、两份备份都不被覆盖
+- `TestExtractInplace_BackupSource` / `TestSplitByRowsInplaceBackup`: 用 `filepath.Glob` 适配新命名
+
+---
+
 ## [v1.2.0] - 2026-05-05
 
 ### 新增 (Added)

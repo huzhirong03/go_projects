@@ -2,7 +2,6 @@ package extractor
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"sort"
 	"testing"
@@ -199,8 +198,12 @@ func TestExtractInplace_BackupSource(t *testing.T) {
 	}
 	_ = runInplaceExtract(t, task)
 
-	if _, err := os.Stat(src + ".bak"); err != nil {
-		t.Fatalf("期望生成 %s.bak：%v", src, err)
+	// V1.2: 备份命名从 <src>.bak 改成 <src 去扩展>_备份_<时间戳>.xlsx
+	ext := filepath.Ext(src)
+	prefix := src[:len(src)-len(ext)] + "_备份_"
+	matches, err := filepath.Glob(prefix + "*" + ext)
+	if err != nil || len(matches) == 0 {
+		t.Fatalf("期望生成 %s*%s，未找到（err=%v matches=%v）", prefix, ext, err, matches)
 	}
 }
 

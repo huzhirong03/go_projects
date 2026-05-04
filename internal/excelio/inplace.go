@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
+	"time"
 
 	"excel-master/internal/core"
 
@@ -155,13 +157,33 @@ func AtomicReplace(target, tmp string) error {
 	return nil
 }
 
-// BackupCopy 把 src 复制成 src.bak（已存在会覆盖）。用于 inplace 前用户勾选"自动备份"时。
-// 和 AtomicReplace 无关——这个是额外保底副本。
+// BackupCopy 把 src 复制成带时间戳同后缀的备份文件。用于 inplace 前用户勾选"自动备份"时。
+//
+// 命名规则：<dir>/<basename>_备份_<yyyyMMdd_HHmmss><ext>
+//
+//	例： G:/data/学生信息.xlsx → G:/data/学生信息_备份_20260505_063800.xlsx
+//
+// 设计考量：
+//   - 保留原扩展名（.xlsx 还是 .xlsx）→ 双击可直接用 Excel 打开
+//   - 多次 inplace 不互相覆盖（每次时间戳不同）→ 能保留历史作为"版本快照"
+//   - 防同秒撞名（脚本连跑）：追加 _2 _3 ... 避让，走到 _99 仍冲突就复用最后一个
 func BackupCopy(src string) (string, error) {
-	dst := src + ".bak"
-	// 允许覆盖旧备份
-	_ = os.Remove(dst)
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+	dir := filepath.Dir(src)
+	base := filepath.Base(src)
+	ext := filepath.Ext(base)
+	name := strings.TrimSuffix(base, ext)
+	ts := time.Now().Format("20060102_150405")
+
+	dst := filepath.Join(dir, name+"_备份_"+ts+ext)
+	// 同秒撞名避让
+	for i := 2; i < 100; i++ {
+		if _, err := os.Stat(dst); os.IsNotExist(err) {
+			break
+		}
+		dst = filepath.Join(dir, name+"_备份_"+ts+"_"+strconv.Itoa(i)+ext)
+	}
+
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", core.Wrap("BACKUP_MKDIR_FAILED", "创建备份目录失败", err)
 	}
 	in, err := os.Open(src)
