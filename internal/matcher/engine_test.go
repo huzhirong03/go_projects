@@ -57,6 +57,86 @@ func TestEngineModes(t *testing.T) {
 	}
 }
 
+// TestEngineASCIIFastPath 验证 B1 快路径：
+// 关键词都不含 ASCII 字母时，asciiFreeKeywords=true，Match 走无 ToLower 分支；
+// 关键词含 ASCII 字母时，走 ToLower 慢路径，大小写不敏感仍然生效。
+// 两条路径对各自适用场景必须返回完全相同的命中结果。
+func TestEngineASCIIFastPath(t *testing.T) {
+	t.Run("纯中文关键词-快路径", func(t *testing.T) {
+		e := NewEngine([]string{"汉族"}, core.MatchContains)
+		if !e.asciiFreeKeywords {
+			t.Fatalf("纯中文关键词应启用 asciiFreeKeywords 快路径")
+		}
+		if got := e.Match("张三 汉族 男"); got != "汉族" {
+			t.Errorf("快路径 Contains 未命中: %q", got)
+		}
+		if got := e.Match("张三 壮族 男"); got != "" {
+			t.Errorf("快路径不应命中无关文本: %q", got)
+		}
+	})
+
+	t.Run("纯数字关键词-快路径", func(t *testing.T) {
+		e := NewEngine([]string{"2026"}, core.MatchContains)
+		if !e.asciiFreeKeywords {
+			t.Fatalf("纯数字关键词应启用快路径")
+		}
+		if got := e.Match("日期 2026-05-04"); got != "2026" {
+			t.Errorf("快路径数字命中错误: %q", got)
+		}
+	})
+
+	t.Run("ASCII 关键词-慢路径-大小写不敏感", func(t *testing.T) {
+		e := NewEngine([]string{"VIP"}, core.MatchContains)
+		if e.asciiFreeKeywords {
+			t.Fatalf("ASCII 关键词不应启用快路径")
+		}
+		// 大小写不敏感必须保持
+		for _, text := range []string{"VIP 客户", "vip 会员", "VipUser", "xxVIPxx"} {
+			if got := e.Match(text); got != "VIP" {
+				t.Errorf("ASCII 慢路径大小写不敏感失效: text=%q got=%q", text, got)
+			}
+		}
+	})
+
+	t.Run("中英混合关键词-慢路径", func(t *testing.T) {
+		// 一个 ASCII 一个中文：应走慢路径，两个都能命中
+		e := NewEngine([]string{"VIP", "汉族"}, core.MatchContains)
+		if e.asciiFreeKeywords {
+			t.Fatalf("混合关键词存在 ASCII 应走慢路径")
+		}
+		if got := e.Match("张三 汉族"); got != "汉族" {
+			t.Errorf("混合关键词慢路径中文命中错误: %q", got)
+		}
+		if got := e.Match("李四 Vip 客户"); got != "VIP" {
+			t.Errorf("混合关键词慢路径 ASCII 大小写不敏感失效: %q", got)
+		}
+	})
+
+	t.Run("空关键词集合-不启用快路径", func(t *testing.T) {
+		e := NewEngine([]string{"", "  "}, core.MatchContains)
+		if e.asciiFreeKeywords {
+			t.Fatalf("空关键词集合不应启用快路径")
+		}
+		if got := e.Match("任何文本"); got != "" {
+			t.Errorf("空关键词任何输入都应返回空串: %q", got)
+		}
+	})
+
+	t.Run("纯中文关键词-精准模式", func(t *testing.T) {
+		// 快路径下 Exact 模式也必须工作
+		e := NewEngine([]string{"汉族"}, core.MatchExact)
+		if !e.asciiFreeKeywords {
+			t.Fatalf("纯中文 Exact 应启用快路径")
+		}
+		if got := e.Match("汉族"); got != "汉族" {
+			t.Errorf("快路径 Exact 命中错误: %q", got)
+		}
+		if got := e.Match("汉族裔"); got != "" {
+			t.Errorf("快路径 Exact 不应命中超集: %q", got)
+		}
+	})
+}
+
 func TestEngineMatchRow(t *testing.T) {
 	e := NewEngine([]string{"口红"}, core.MatchContains)
 	cells := []string{"SKU001", "哑光口红 A", "100"}
