@@ -7,23 +7,29 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
-// gen02_OrdersWithFormulas 生成 3 万行订单表，**故意制造 shared formula** 让 Excel
-// 把"金额 = 数量 × 单价"压缩成共享公式（主公式只在 H2，其他行写 si=0 引用）。
-// 同时也生成 calcChain.xml。
+// gen02_OrdersWithFormulas 生成 3 万行订单表，每行带 H/I/J 三列公式 + 预计算 <v> 缓存。
 //
-// 这是上一轮 zip-surgery 修复的回归 fixture：
-//   - 单文件 merged 提取后，应不再弹"部分内容有问题"
-//   - 共享公式应被展开成独立公式
-//   - calcChain.xml 应被自动重建（不复制到输出）
+// 设计取舍：
+//   - 早期版本用 shared formula（主公式在 H2，H3-H30001 写 follower 引用）尝试
+//     复刻 calcChain 回归测试，但 excelize 对 shared follower 的 Si 绑定支持
+//     不稳 → 文件在 Excel/WPS 打开时除 H2 外其他行全空，误导读者以为 fixture
+//     本身坏了。现已放弃 shared 手工拼装。
+//   - shared formula 路径的正确性已由 internal/excelio（含 <f t="shared"/> 的
+//     小 fixture 单测）和 internal/extractor 的单测全面覆盖，不再依赖 smoke
+//     fixture 承担此职责。
+//   - 本 fixture 的当前职责：① 3 万行公式性能冒烟 ② 公式 + <v> 缓存共存场景
+//     （真实业务文件最典型的状态）③ 关键词"VIP 客户 / 促销 / 退货"埋点。
+//
+// 写入顺序陷阱（实测踩坑）：
+//   - excelize v2 的 SetCellInt / SetCellFloat 内部会显式 `c.F = nil` 清掉公式；
+//   - SetCellFormula 只改 c.F，不动 c.V。
+//     所以**必须先写缓存值再写公式**，顺序颠倒会导致所有 cell 只有 <v> 没有 <f>。
+//     最终每个 cell 是 <c><f>D2*E2</f><v>80</v></c>。
 //
 // 关键词埋点：
 //   - "VIP 客户" 每 50 行一个 = 600 行
-//   - "促销" 每 30 行一个 = 1000 行
-//   - "退货" 偶尔出现（每 500 行一个 = 60 行）
-//
-// 注：excelize 的 SetCellFormula 默认写 normal formula，要触发 shared formula
-// 需要在 SetCellFormula 时显式指定 ref + type=shared。但 excelize 的高层 API
-// 不直接暴露这个，所以我们直接用 StreamWriter + raw cell 注入 shared 标记。
+//   - "促销" F 列每 30 行一个 = 1000 行
+//   - "退货" G 列每 500 行一个 = 60 行
 func gen02_OrdersWithFormulas(dir string) error {
 	const totalRows = 30_000
 	path := filepath.Join(dir, "02_订单含公式_3万行.xlsx")
@@ -50,9 +56,7 @@ func gen02_OrdersWithFormulas(dir string) error {
 	}
 	notes := []string{"正常订单", "加急", "促销", "退货", "首次", "续费", "代发"}
 
-	// ---- 写数据行 + 公式 ----
-	// 关键：B 列（客户类型）要保证"VIP 客户" 出现 ~600 次
-	// G 列（备注）要保证"促销" / "退货" 命中
+	// ---- 写数据行 + 公式 + 预计算缓存 ----
 	for i := 0; i < totalRows; i++ {
 		row := i + 2
 		orderNo := fmt.Sprintf("ORD-%08d", 20260000+i)
@@ -66,7 +70,7 @@ func gen02_OrdersWithFormulas(dir string) error {
 		}
 
 		product := products[i%len(products)]
-		qty := 1 + (i*3)%50    // 1-50
+		qty := 1 + (i*3)%50     // 1-50
 		price := 80 + (i*7)%420 // 80-500
 		// 促销标记
 		promo := ""
@@ -87,32 +91,26 @@ func gen02_OrdersWithFormulas(dir string) error {
 		setCell(f, sheet, 6, row, promo)
 		setCell(f, sheet, 7, row, note)
 
-		// H 列：金额 = 数量 × 单价
-		if i == 0 {
-			// 主公式（带 shared 标记，覆盖 H2:H30001）
-			ref := fmt.Sprintf("H%d:H%d", 2, totalRows+1)
-			_ = f.SetCellFormula(sheet, fmt.Sprintf("H%d", row),
-				fmt.Sprintf("D%d*E%d", row, row),
-				excelize.FormulaOpts{
-					Type: stringPtr("shared"),
-					Ref:  &ref,
-				})
-		} else {
-			// follower：写 si=0 引用主
-			_ = f.SetCellFormula(sheet, fmt.Sprintf("H%d", row),
-				"",
-				excelize.FormulaOpts{
-					Type: stringPtr("shared"),
-				})
+		// --- H 列：金额 = 数量 × 单价（先写值，再写公式，保留二者）---
+		hRef := fmt.Sprintf("H%d", row)
+		amount := qty * price
+		_ = f.SetCellInt(sheet, hRef, amount)
+		_ = f.SetCellFormula(sheet, hRef, fmt.Sprintf("D%d*E%d", row, row))
+
+		// --- I 列：折扣（VIP 客户 0.9，其他 1.0）---
+		iRef := fmt.Sprintf("I%d", row)
+		discount := 1.0
+		if customer == "VIP 客户" {
+			discount = 0.9
 		}
+		_ = f.SetCellFloat(sheet, iRef, discount, 2, 64)
+		_ = f.SetCellFormula(sheet, iRef, fmt.Sprintf("IF(B%d=\"VIP 客户\",0.9,1)", row))
 
-		// I 列：折扣（VIP 客户 0.9，其他 1.0）—— 普通公式
-		_ = f.SetCellFormula(sheet, fmt.Sprintf("I%d", row),
-			fmt.Sprintf("IF(B%d=\"VIP 客户\",0.9,1)", row))
-
-		// J 列：实收 = 金额 × 折扣
-		_ = f.SetCellFormula(sheet, fmt.Sprintf("J%d", row),
-			fmt.Sprintf("H%d*I%d", row, row))
+		// --- J 列：实收 = 金额 × 折扣 ---
+		jRef := fmt.Sprintf("J%d", row)
+		actual := float64(amount) * discount
+		_ = f.SetCellFloat(sheet, jRef, actual, 2, 64)
+		_ = f.SetCellFormula(sheet, jRef, fmt.Sprintf("H%d*I%d", row, row))
 	}
 
 	// 列宽
@@ -122,8 +120,6 @@ func gen02_OrdersWithFormulas(dir string) error {
 	}
 	return f.SaveAs(path)
 }
-
-func stringPtr(s string) *string { return &s }
 
 func setCell(f *excelize.File, sheet string, col, row int, v any) {
 	cell, _ := excelize.CoordinatesToCellName(col, row)

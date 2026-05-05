@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/xuri/excelize/v2"
 )
@@ -305,34 +306,80 @@ func TestEvalFormulasAt_SkipsCrossSheet(t *testing.T) {
 	}
 }
 
+// buildLargeUncachedFormulaFixture 类似 buildUncachedFormulaFixture 但行数可配。
+// 专供 budget 测试用——少量 ref 在 Windows 高分辨率时钟下容易全部落在同一 tick，
+// 导致 time.Since 返回 0 让 budget 判断失效。100 行 CalcCellValue 累积耗时
+// 远超任何时钟粒度，可稳定触发"剩余 ref 超预算被跳过"分支。
+func buildLargeUncachedFormulaFixture(t *testing.T, rowCount int) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "uncached_large.xlsx")
+	f := excelize.NewFile()
+	defer func() { _ = f.Close() }()
+
+	const sheet = "数据"
+	idx, err := f.NewSheet(sheet)
+	if err != nil {
+		t.Fatalf("NewSheet: %v", err)
+	}
+	f.SetActiveSheet(idx)
+	_ = f.DeleteSheet("Sheet1")
+
+	headers := []string{"产品", "数量", "单价", "小计"}
+	for i, h := range headers {
+		ref, _ := excelize.CoordinatesToCellName(i+1, 1)
+		_ = f.SetCellValue(sheet, ref, h)
+	}
+	for i := 0; i < rowCount; i++ {
+		row := i + 2
+		_ = f.SetCellValue(sheet, "A"+strconv.Itoa(row), "P"+strconv.Itoa(i))
+		_ = f.SetCellValue(sheet, "B"+strconv.Itoa(row), i+1)
+		_ = f.SetCellValue(sheet, "C"+strconv.Itoa(row), 100)
+		// SetCellFormula 不写 <v>，模拟 fixture 04 的无缓存公式场景
+		if err := f.SetCellFormula(sheet, "D"+strconv.Itoa(row),
+			"B"+strconv.Itoa(row)+"*C"+strconv.Itoa(row)); err != nil {
+			t.Fatalf("SetCellFormula: %v", err)
+		}
+	}
+	if err := f.SaveAs(path); err != nil {
+		t.Fatalf("SaveAs: %v", err)
+	}
+	return path
+}
+
 // TestEvalFormulasAt_RespectsBudget：budget 到期后剩余 ref 应被跳过，
-// 已算出的不丢。把 budget 临时调到 1 纳秒模拟"预算已耗尽"的边界。
+// 已算出的不丢。用 100 行 + 1µs budget 保证 Windows 下稳定。
 func TestEvalFormulasAt_RespectsBudget(t *testing.T) {
-	path := buildUncachedFormulaFixture(t)
+	const rowCount = 100
+	path := buildLargeUncachedFormulaFixture(t, rowCount)
 	r, err := Open(path)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 	defer r.Close()
 
-	// 临时把 budget 设为 1 纳秒：第一个 cell 算完就会判定预算耗尽
+	// 1µs budget：Windows time.Since 粒度最大 ~1µs，100 次 CalcCellValue
+	// 累积耗时至少十几 µs（excelize calc 引擎本身 µs 级 per call），保证
+	// 循环早期就触发 budget 判定，后续所有 ref 稳定进入 SkippedBudget 分支。
 	origBudget := FormulaEvalBudget
-	FormulaEvalBudget = 1
+	FormulaEvalBudget = time.Microsecond
 	defer func() { FormulaEvalBudget = origBudget }()
 
-	refs := map[string]string{
-		"D2": "B2*C2",
-		"D3": "B3*C3",
-		"D4": "B4*C4",
-		"D5": "B5*C5",
+	refs := make(map[string]string, rowCount)
+	for i := 0; i < rowCount; i++ {
+		row := i + 2
+		refs["D"+strconv.Itoa(row)] = "B" + strconv.Itoa(row) + "*C" + strconv.Itoa(row)
 	}
 	_, stats, err := r.EvalFormulasAtWithStats("数据", refs)
 	if err != nil {
 		t.Fatalf("EvalFormulasAtWithStats: %v", err)
 	}
-	// 4 个中至少 1 个被 budget 跳过（通常是 3 个）
 	if stats.SkippedBudget == 0 {
-		t.Errorf("budget=1ns 下 SkippedBudget 应 >= 1，实际 %d", stats.SkippedBudget)
+		t.Errorf("100 refs + budget=1µs 下 SkippedBudget 应 >= 1，实际 %d (Computed=%d)",
+			stats.SkippedBudget, stats.Computed)
+	}
+	if stats.Computed+stats.SkippedBudget+stats.SkippedCrossSheet != rowCount {
+		t.Errorf("总数不守恒：Computed=%d + SkippedBudget=%d + SkippedCrossSheet=%d != %d",
+			stats.Computed, stats.SkippedBudget, stats.SkippedCrossSheet, rowCount)
 	}
 }
 
