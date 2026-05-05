@@ -214,7 +214,12 @@ Public Sub ExtractByKeywordFull()
 
         ' 批量复制命中行（Range.Union → Copy → PasteSpecial xlPasteAll）
         ' 这会带上：公式 / 样式 / 合并单元格 / 数据有效性 / 条件格式
+        '
+        ' 注意：VBA 的 Dim 没有块作用域，srcUnion 在方法入口初始化为 Nothing 之后，
+        '       多个 ws 迭代之间会 carry over；Union 硬性要求所有 Range 同一 Sheet，
+        '       跨 Sheet 必抛 1004。所以每个 Sheet 开头必须显式重置。
         Dim srcUnion As Range
+        Set srcUnion = Nothing
         Dim i As Long
         For i = 1 To hitN
             Dim rng As Range
