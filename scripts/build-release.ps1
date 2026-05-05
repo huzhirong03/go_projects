@@ -74,9 +74,19 @@ $wv2Param = @{
 
 Write-Host ""
 Write-Host "==== wails build -webview2 $wv2Param ====" -ForegroundColor Cyan
-& wails build -clean -platform windows/amd64 -webview2 $wv2Param -ldflags "-s -w"
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "wails build 失败 (exit=$LASTEXITCODE)"
+# 注意：wails 把启动日志写到 stderr，PowerShell 在 $ErrorActionPreference='Stop'
+# 模式下会把它当成 NativeCommandError 中止脚本。临时切到 Continue 让其按
+# LASTEXITCODE 判断真正的成败，退出后恢复 Stop。
+$savedErrorPref = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+try {
+    & wails build -clean -platform windows/amd64 -webview2 $wv2Param -ldflags "-s -w"
+    $wailsExit = $LASTEXITCODE
+} finally {
+    $ErrorActionPreference = $savedErrorPref
+}
+if ($wailsExit -ne 0) {
+    Write-Error "wails build 失败 (exit=$wailsExit)"
     exit 1
 }
 
