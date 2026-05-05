@@ -446,6 +446,9 @@ NextShape:
     On Error GoTo 0
     Application.ScreenUpdating = prevScreen
 
+    ' 彻底清 Err 残留，避免主流程误把"已处理过的图片 Copy 重试错误"当成未处理异常上报
+    Err.Clear
+
     skippedOut = skipped
     CopyShapesForHitRows = n
 End Function
