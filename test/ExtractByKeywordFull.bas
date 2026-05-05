@@ -1,6 +1,16 @@
 Attribute VB_Name = "ExtractByKeywordFull"
 Option Explicit
 
+' --- Win32 API 声明（用于图片复制时的剪贴板管理） ---
+' 大量连续 Shape.Copy 会让 Excel 剪贴板进入"上一个还没释放就来下一个"的竞态，
+' 触发 -2147221040 (CLIPBRD_E_CANT_OPEN)。解决办法：Copy 前先 Sleep 一小会让
+' 前一次剪贴板彻底释放，失败时再重试。
+#If VBA7 Then
+    Private Declare PtrSafe Sub Sleep Lib "kernel32" (ByVal dwMilliseconds As Long)
+#Else
+    Private Declare Sub Sleep Lib "kernel32" (ByVal dwMilliseconds As Long)
+#End If
+
 ' ====================================================================
 ' Excel 拆合大师 · VBA 完整对比版（带格式 / 公式 / 行高列宽 / 图片）
 '
@@ -114,7 +124,7 @@ Public Sub ExtractByKeywordFull()
     End If
 
     ' --- 6. 逐 Sheet 处理 ---
-    Dim totalScanned As Long, totalHits As Long, totalImages As Long
+    Dim totalScanned As Long, totalHits As Long, totalImages As Long, totalImagesSkipped As Long
     Dim sheetCount As Long
 
     ' writeBack 模式共用一个输出 Sheet；new file 模式每个源 Sheet 一个输出 Sheet
@@ -229,8 +239,10 @@ Public Sub ExtractByKeywordFull()
 
         ' 复制图片（跟随行）
         Dim imgCount As Long: imgCount = 0
-        imgCount = CopyShapesForHitRows(ws, outSheet, hitRows, hitN, outStartRow, firstCol)
+        Dim imgSkipped As Long: imgSkipped = 0
+        imgCount = CopyShapesForHitRows(ws, outSheet, hitRows, hitN, outStartRow, firstCol, imgSkipped)
         totalImages = totalImages + imgCount
+        totalImagesSkipped = totalImagesSkipped + imgSkipped
 
 NextSheet:
     Next ws
@@ -272,7 +284,11 @@ Cleanup:
           "处理 Sheet：  " & sheetCount & " 个" & vbCrLf & _
           "扫描行数：    " & Format(totalScanned, "#,##0") & vbCrLf & _
           "命中行数：    " & Format(totalHits, "#,##0") & vbCrLf & _
-          "复制图片数：  " & Format(totalImages, "#,##0") & vbCrLf & _
+          "复制图片数：  " & Format(totalImages, "#,##0") & vbCrLf
+    If totalImagesSkipped > 0 Then
+        msg = msg & "跳过图片数：  " & Format(totalImagesSkipped, "#,##0") & "（剪贴板重试 3 次仍失败）" & vbCrLf
+    End If
+    msg = msg & _
           "总耗时：      " & Format(elapsed, "0.00") & " 秒" & vbCrLf & vbCrLf & _
           "输出方式：    " & mode
     If savedPath <> "" Then
@@ -315,10 +331,12 @@ End Sub
 '   1. ScreenUpdating = False 时 Shape.Copy/Paste 会粘出"空白框"。必须临时开启。
 '   2. dstWs.Paste 必须在 dstWs 被 Activate 之后调用，否则图片要么粘不上、要么粘到错 sheet。
 '   3. Shape.Copy 后要给 Excel 一点时间让剪贴板就绪（DoEvents），不然偶发拿到空图。
-Private Function CopyShapesForHitRows(srcWs As Worksheet, dstWs As Worksheet, hitRows() As Long, hitN As Long, dstStartRow As Long, firstCol As Long) As Long
+Private Function CopyShapesForHitRows(srcWs As Worksheet, dstWs As Worksheet, hitRows() As Long, hitN As Long, dstStartRow As Long, firstCol As Long, ByRef skippedOut As Long) As Long
     Dim n As Long: n = 0
+    Dim skipped As Long: skipped = 0
     If srcWs.Shapes.Count = 0 Then
         CopyShapesForHitRows = 0
+        skippedOut = 0
         Exit Function
     End If
 
@@ -356,12 +374,52 @@ Private Function CopyShapesForHitRows(srcWs As Worksheet, dstWs As Worksheet, hi
             xOff = shp.Left - srcWs.Cells(srcRow, srcCol).Left
             yOff = shp.Top - srcWs.Cells(srcRow, srcCol).Top
 
-            ' 复制到目标 —— 必须激活目标 Sheet 并 DoEvents
-            shp.Copy
-            DoEvents                    ' 等剪贴板就绪，避免粘空白
-            dstWs.Activate              ' Paste 的目标必须是激活的 Sheet
-            dstWs.Paste
-            DoEvents
+            ' --- 带重试的复制粘贴 ---
+            ' 大量连续 Shape.Copy 会间歇触发 CLIPBRD_E_CANT_OPEN；重试 3 次，每次递增 sleep
+            Dim copyOK As Boolean: copyOK = False
+            Dim attempt As Long
+            Dim shapeBefore As Long
+            For attempt = 1 To 3
+                ' 清干净剪贴板状态再 Copy
+                Application.CutCopyMode = False
+                DoEvents
+                Sleep 20 * attempt          ' 20ms / 40ms / 60ms 渐进等待
+
+                On Error Resume Next
+                shp.Copy
+                If Err.Number <> 0 Then
+                    Err.Clear
+                    On Error GoTo 0
+                    GoTo RetryCopy
+                End If
+                On Error GoTo 0
+
+                DoEvents
+                dstWs.Activate              ' Paste 目标必须是激活的 Sheet
+                shapeBefore = dstWs.Shapes.Count
+
+                On Error Resume Next
+                dstWs.Paste
+                If Err.Number <> 0 Then
+                    Err.Clear
+                    On Error GoTo 0
+                    GoTo RetryCopy
+                End If
+                On Error GoTo 0
+                DoEvents
+
+                ' Paste 成功的标志：新增了一个 shape
+                If dstWs.Shapes.Count > shapeBefore Then
+                    copyOK = True
+                    Exit For
+                End If
+RetryCopy:
+            Next attempt
+
+            If Not copyOK Then
+                skipped = skipped + 1
+                GoTo NextShape
+            End If
 
             Dim newShp As Shape
             Set newShp = dstWs.Shapes(dstWs.Shapes.Count)
@@ -388,6 +446,7 @@ NextShape:
     On Error GoTo 0
     Application.ScreenUpdating = prevScreen
 
+    skippedOut = skipped
     CopyShapesForHitRows = n
 End Function
 
