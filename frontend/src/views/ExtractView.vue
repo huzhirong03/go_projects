@@ -65,6 +65,7 @@ const defaults = {
     foldKeywords: false,
     foldRange: false,
     foldDedup: true,
+    foldOutput: false,
 }
 
 const form = reactive({ ...defaults, sheetNames: [] })
@@ -85,6 +86,16 @@ const sourcePath = computed({
 const hasCSVSource = computed(() => {
     if (form.sourceMode === 'file') return /\.csv$/i.test(form.filePath || '')
     return /\.csv$/i.test(previewState.firstFile || '')
+})
+
+// strategyLabel：当前策略的中文短名，显示在"导出设置"折叠标题右侧。
+const strategyLabel = computed(() => {
+    switch (form.strategy) {
+        case OUTPUT_PER_KEYWORD: return '每个关键词一个文件'
+        case OUTPUT_MERGED:      return '合成一个文件'
+        case OUTPUT_PER_SOURCE:  return '每个源文件一个'
+        default:                 return ''
+    }
 })
 
 // fidelityHint：根据当前源模式 + 策略，给出保真度的友好提示。
@@ -593,7 +604,10 @@ async function submit() {
             <AdvancedFilter v-model="form.advancedFilter" :columns="previewState.columns" />
         </Collapsible>
 
-        <div class="strip strip-output">
+        <Collapsible title="导出设置" :open="!form.foldOutput" @update:open="v => form.foldOutput = !v">
+            <template #head-extra>
+                <span class="adv-badge" :title="`当前策略：${strategyLabel}`">{{ strategyLabel }}</span>
+            </template>
             <div class="strip-row">
                 <span class="strip-title">策略</span>
                 <div class="inline-group radio-group">
@@ -643,7 +657,7 @@ async function submit() {
                     </select>
                 </label>
             </div>
-        </div>
+        </Collapsible>
 
         <div class="actions">
             <button class="btn btn-primary" :disabled="task.running" @click="submit">
