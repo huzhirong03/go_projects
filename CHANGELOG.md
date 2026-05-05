@@ -11,6 +11,78 @@
 
 ---
 
+## [v1.4.1] - 2026-05-05
+
+### 新增 (Added)
+
+- **公式列精准求值（方案 A+）**：用 `SetCellFormula` 保存但无 `<v>` 缓存的 xlsx
+  文件（典型：fixture 04、用户编辑未保存就发邮件的文件），搜索能命中公式计算结果：
+  - `ProbeSheet` 在 zip 流式扫描时顺手收集"有 `<f>` 无 `<v>`"cell 的 ref 和公式
+    文本（同一次 zip 扫描，零新增 I/O）
+  - 新 API `Reader.UncachedFormulas(sheet)` / `Reader.EvalFormulasAt(sheet, refs)`
+    / `Reader.EvalFormulasAtWithStats(sheet, refs)`
+  - 新辅助 `excelio.FillRowCellsWithFormulaValues` 把求值结果填到 cells 数组
+    （xlsxreader 跳过无 `<v>` 公式 cell 导致行末缺列时自动扩展）
+  - 覆盖三类场景：
+    - 批量提取（`extractor.processFile`）— 搜索命中带公式计算结果的行
+    - 批量提取 写回源 Sheet（`extractor_inplace.go`）— 同上
+    - 按列值拆分（`splitter.SplitByColumn` / `splitByColumnInplace`）— 用公式列
+      正确分桶（否则所有行会进 `__空值__` 单桶）
+
+- **窗口标题独立常量 `core.WindowTitle`**：标题栏显示 "办公自动化，跟大荣学 AI"，
+  与 `AppName`（exe 属性页 / wails.json productName）解耦，品牌文案可独立更新
+
+### 修复 (Fixed)
+
+- **公式求值的性能防护（双保险）**：避免 v1.4.0 踩过的 16 秒灾难：
+  1. **跨 sheet 公式跳过**：公式文本含 `'!'` 的（典型 `COUNTIF(其他表!D:D, ...)`)
+     直接跳过求值。`excelize.CalcCellValue` 对跨 sheet 引用无 cache，单 cell
+     达 150-200ms，90 cell 累积到 16 秒；openpyxl / xlsxreader 等主流库也都不求
+     跨 sheet 聚合，行业共识
+  2. **硬性 2 秒总预算 `FormulaEvalBudget`**：兜底防御同 sheet 但异常慢的公式
+     （超大 SUMPRODUCT 等），超预算立刻停，最坏情况也不卡死
+
+- **真实业务文件零性能回归保证**：真实业务文件的公式几乎都有 `<v>` 缓存 →
+  `uncachedFormulasCache[sheet]` 为空 → EvalFormulasAt / Fill 完全不被调用 →
+  扫描主循环代码路径与 v1.3.1 完全一致
+
+### 性能 (Performance)
+
+fixture 04（3000 行学生成绩 + 24 cell 跨 sheet 年级统计 + 90 cell 跨 sheet
+班级统计）搜 "300"：
+
+| 版本 | 总耗时 | 说明 |
+|---|---|---|
+| v1.3.1 | 3 秒 | 但**搜不到**公式列 |
+| v1.4.0（已撤）| 22 秒 | 搜得到但性能灾难 |
+| **v1.4.1** | **~2 秒** | 搜得到 + 性能 OK |
+
+真实业务文件（带公式有缓存）：与 v1.3.1 完全一致（ProbeSheet 同一次扫描顺手做，
+无新增 I/O）
+
+### 测试 (Tests)
+
+- `internal/excelio/formula_eval_test.go` 锁定：
+  - `ProbeSheet` 顺手收集 uncached cell 的正确性（4 个公式 cell 全部识别）
+  - `EvalFormulasAt` 精准求值 D2=300 / D3=250 / D4=200 / D5=88
+  - **跨 sheet 跳过**：含 `'!'` 的公式不调 CalcCellValue（`SkippedCrossSheet`）
+  - **budget 到期**：budget=1ns 时剩余 ref 被跳过（`SkippedBudget`）
+  - `FillRowCellsWithFormulaValues` 自动扩展 cells 切片的关键 case
+
+- `internal/extractor/extractor_formula_eval_test.go` 端到端：fixture 04 搜 "300"
+  必须命中 74 行 + 输出文件 K 列仍是公式 + **10 秒性能门禁**（实测 2.02 秒）
+
+- `internal/splitter/splitter_formula_test.go` 端到端：按公式列（`分类名`）拆分
+  无 `<v>` 缓存的文件必须产出 3 个桶（美妆/服饰/其他），而不是 1 个 `__空值__` 桶
+
+### 历史说明
+
+v1.4.0（已通过 `git revert` 撤销）用 `excelize.Rows` 全表扫描求所有公式值，
+不管是否已有缓存 → 10 万行真实业务文件每 sheet 扫描阶段慢 5-20 秒，严重回归。
+v1.4.1 用 ProbeSheet 顺手收集 + 精准 CalcCellValue 解决同一需求，无回归。
+
+---
+
 ## [v1.3.1] - 2026-05-05
 
 ### 新增 (Added)

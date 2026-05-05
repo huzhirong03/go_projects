@@ -127,6 +127,24 @@ func splitOneSheetByColumn(
 		}
 	}
 
+	// 公式回退精准求值（方案 A+，与 extractor 同款）：
+	// 当拆分列（SplitColumn）本身是公式列、且公式没 <v> 缓存时（fixture 04 场景），
+	// cells[colIdx] 会是空字符串，导致所有行分到 "__空值__" 桶。先把这类 cell 求值填好。
+	// 真实业务文件 UncachedFormulas 返回空 map，下面的 Fill 不被触发，零额外开销。
+	var formulaValues map[string]string
+	if uncached, uerr := r.UncachedFormulas(sheet); uerr != nil {
+		emitter.Log(core.LogWarn, fmt.Sprintf("[%s] 获取无缓存公式列表失败，跳过回退: %s", sheet, uerr.Error()))
+	} else if len(uncached) > 0 {
+		if vals, stats, eerr := r.EvalFormulasAtWithStats(sheet, uncached); eerr != nil {
+			emitter.Log(core.LogWarn, fmt.Sprintf("[%s] 公式精准求值失败: %s", sheet, eerr.Error()))
+		} else {
+			formulaValues = vals
+			emitter.Log(core.LogInfo, fmt.Sprintf("[%s] 公式精准求值 %v: 请求=%d 算出=%d 跳过(跨sheet)=%d 跳过(超预算)=%d",
+				sheet, stats.Elapsed.Round(1000000), stats.Requested, stats.Computed,
+				stats.SkippedCrossSheet, stats.SkippedBudget))
+		}
+	}
+
 	it, err := r.Iterate(sheet)
 	if err != nil {
 		return true, err
@@ -149,6 +167,9 @@ func splitOneSheetByColumn(
 		cells, err := it.Columns()
 		if err != nil {
 			return true, err
+		}
+		if len(formulaValues) > 0 {
+			cells = excelio.FillRowCellsWithFormulaValues(cells, it.RowNum(), formulaValues)
 		}
 		key := ""
 		if colIdx < len(cells) {

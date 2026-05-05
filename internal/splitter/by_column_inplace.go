@@ -56,6 +56,22 @@ func splitByColumnInplace(
 		}
 		matchedSheets++
 
+		// 公式回退精准求值（方案 A+），与 splitOneSheetByColumn 同款。
+		// 拆分列是公式列且无 <v> 缓存时保证 key 不全是空值。真实业务文件零开销。
+		var formulaValues map[string]string
+		if uncached, uerr := r.UncachedFormulas(sheet); uerr != nil {
+			emitter.Log(core.LogWarn, fmt.Sprintf("[%s] 获取无缓存公式列表失败，跳过回退: %s", sheet, uerr.Error()))
+		} else if len(uncached) > 0 {
+			if vals, stats, eerr := r.EvalFormulasAtWithStats(sheet, uncached); eerr != nil {
+				emitter.Log(core.LogWarn, fmt.Sprintf("[%s] 公式精准求值失败: %s", sheet, eerr.Error()))
+			} else {
+				formulaValues = vals
+				emitter.Log(core.LogInfo, fmt.Sprintf("[%s] 公式精准求值 %v: 请求=%d 算出=%d 跳过(跨sheet)=%d 跳过(超预算)=%d",
+					sheet, stats.Elapsed.Round(1000000), stats.Requested, stats.Computed,
+					stats.SkippedCrossSheet, stats.SkippedBudget))
+			}
+		}
+
 		it, err := r.Iterate(sheet)
 		if err != nil {
 			_ = r.Close()
@@ -79,6 +95,9 @@ func splitByColumnInplace(
 				it.Close()
 				_ = r.Close()
 				return nil, err
+			}
+			if len(formulaValues) > 0 {
+				cells = excelio.FillRowCellsWithFormulaValues(cells, it.RowNum(), formulaValues)
 			}
 			key := ""
 			if colIdx < len(cells) {
