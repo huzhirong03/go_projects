@@ -11,6 +11,52 @@
 
 ---
 
+## [v1.3.1] - 2026-05-05
+
+### 新增 (Added)
+
+- **多源 per_keyword 升级为 zip 手术**（从 98% 提升到 ~99% 同模板复刻）：
+  - 扩展 `perKeywordSurgeryWriter` 支持多源：`hits[kw][srcPath][sheet][]rowNum`
+  - `Finalize` 按关键词内源数量自动分流：
+    - 单源 → `ExtractToNewFileSurgery`（100% 字节级复刻）
+    - 多源 → `CloneAndMergePreserved`（primary 样板 100% + secondary 数据嫁接）
+  - `extractor.isAllXlsxSources(files)` 替代原 `isSingleXlsxSource`，条件放宽到
+    "所有源都是 xlsx"；CSV 源仍走 `perKeywordWriter`（excelize 流式）
+
+- **前端保真度提示**：文件夹模式 + per_keyword / merged 策略时显示柔和提示，
+  告知"同模板克隆约 99%，要 100% 改用 per_source"
+
+### 修改 (Changed)
+
+- **保真度全景（相对 v1.3.0 升级）**：
+  | 输出策略 | 单源 xlsx | 多源 xlsx（同模板克隆） | 含 CSV |
+  |---|---|---|---|
+  | per_source | 100% | 100% | 100%（xlsx）/ 流式（CSV）|
+  | merged | 100% | ~99%（无变化，之前就是 surgery）| 98%（含 CSV）|
+  | per_keyword | 100% | **~99%（本版本升级）** | 98%（含 CSV）|
+  | inplace | 100% | n/a | n/a |
+
+### 修复 (Fixed)
+
+- **多源 per_keyword 图片变形**（接续 v1.2.2 / v1.3.0）：从 98%（5px 偏差）提升
+  到 100%（anchor 字节搬运），与 merged 多源同款 `CloneAndMergePreserved` 路径
+
+### 测试 (Tests)
+
+- `extractor/extractor_dedup_test.go`: `TestExtract_Dedup_PerKeyword` 的期望
+  sheet 名从老流式 `"结果"` 改为 surgery 路径的源 `"Sheet1"`（反映实际 API 行为）
+- 端到端多源 smoke：3 源（模拟一/二/三年级）× 2500 命中 × 2500 图 × 同 sheet 名
+  `员工档案` → 输出 7501 行 + 7500 图 + sheet 名继承，耗时 30s
+
+### 限制 (Limitations)
+
+**保持不变**（来自 `CloneAndMergePreserved` 物理限制）：
+- secondary 文件单独添加的特殊样式 / 合并单元格 / 条件格式 / 数据验证 会丢
+- secondary 公式取计算结果（跨源行号无法平移，物理限制；`merged` 也一样）
+- 需要 100% 还原每个源 → 请改用 `per_source` 策略
+
+---
+
 ## [v1.3.0] - 2026-05-05
 
 ### 新增 (Added)

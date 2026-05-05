@@ -158,8 +158,9 @@ func TestExtract_Dedup_PerKeyword(t *testing.T) {
 	want := map[string]int{"口红": 3, "眼影": 1}
 	for _, p := range res.OutputFiles {
 		base := filepath.Base(p)
-		// per_keyword writer 默认 sheet 名 "结果"
-		got := countDataRowsXlsx(t, p, "结果")
+		// v1.3.1 起 per_keyword 多源走 zip 手术（CloneAndMergePreserved），
+		// sheet 名继承源 Sheet1。
+		got := countDataRowsXlsx(t, p, "Sheet1")
 		matched := false
 		for kw, expected := range want {
 			if containsAny(base, kw) {

@@ -98,11 +98,14 @@ func ExtractUnits(
 
 	// 5. 选输出策略
 	dedupCfg := buildDedupConfig(task.DedupColumn, task.DedupColumns, task.DedupIgnoreSpace, task.DedupIgnoreCase)
-	// singleXlsxSource：用于 per_keyword 策略选择 surgery vs excelize writer。
-	// 仅当源是"单一 xlsx 文件"时走 zip 手术（100% 保真 + 速度更快）。
-	// CSV 或多源场景保留老流式路径（CSV 不是 zip，不能做手术）。
-	singleXlsxSource := isSingleXlsxSource(files)
-	ow, imgCounterFn, err := newOutputWriter(task.Output, task.OutputDir, task.HeaderRow, task.SheetNames, task.FilenamePrefix, dedupCfg, singleXlsxSource)
+	// allXlsxSources：用于 per_keyword 策略选择 surgery vs excelize writer。
+	// 只要所有源都是 xlsx 就走 zip 手术：
+	//   - 单源 → ExtractToNewFileSurgery（100% 字节级复刻）
+	//   - 多源 → CloneAndMergePreserved（primary 样板 + secondary 数据嫁接，
+	//             同模板克隆场景 ~99% 复刻）
+	// CSV 源不是 zip不能手术，保留老流式 excelize 路径。
+	allXlsxSources := isAllXlsxSources(files)
+	ow, imgCounterFn, err := newOutputWriter(task.Output, task.OutputDir, task.HeaderRow, task.SheetNames, task.FilenamePrefix, dedupCfg, allXlsxSources)
 	if err != nil {
 		return nil, err
 	}
@@ -457,21 +460,19 @@ func validateTaskRelaxed(t core.ExtractTask) error {
 	return nil
 }
 
-// isSingleXlsxSource 判断 files 是否"仅 1 个 xlsx 源文件"（允许多 sheet 单元）。
-// per_keyword surgery writer 的使用前提：源必须是 zip 兼容的 xlsx，且跨文件合并
-// 场景走旧 excelize 路径（样式合并无解）。
-func isSingleXlsxSource(units []FileInfo) bool {
-	seen := map[string]struct{}{}
+// isAllXlsxSources 判断 files 是否全部是 xlsx 源（不含任何 CSV / TSV / 其他格式）。
+// per_keyword surgery writer 的使用前提：所有源必须是 zip 兼容的 xlsx。
+// CSV 不是 zip，不能做手术 → 走原 perKeywordWriter 流式路径。
+func isAllXlsxSources(units []FileInfo) bool {
+	if len(units) == 0 {
+		return false
+	}
 	for _, u := range units {
 		if core.DetectSourceKind(u.Path) != core.SourceXLSX {
 			return false
 		}
-		seen[u.Path] = struct{}{}
-		if len(seen) > 1 {
-			return false
-		}
 	}
-	return len(seen) == 1
+	return true
 }
 
 // countDistinctPaths 统计 FileInfo 列表中不重复的 Path 数。
@@ -530,14 +531,16 @@ func readRowFormulas(r *excelio.Reader, sheet string, row, ncells int) []string 
 //   - per_source -> 按源文件分桶
 func newOutputWriter(
 	strategy core.OutputStrategy, outDir string, headerRow int, sheets []string, filenamePrefix string, dedupCfg dedupConfig,
-	singleXlsxSource bool,
+	allXlsxSources bool,
 ) (OutputWriter, func() int, error) {
 	const defaultSheet = "结果"
 	switch strategy {
 	case core.OutputPerKeyword:
-		// 单源 xlsx 走 zip 手术（100% 样式/图片保真 + 速度更快）；
-		// 多源 / CSV 保留老流式路径（跨源样式无法 1:1 合并；CSV 不是 zip）。
-		if singleXlsxSource {
+		// 所有源都是 xlsx 走 zip 手术：
+		//   - 单源 → ExtractToNewFileSurgery（100% 字节级复刻）
+		//   - 多源 → CloneAndMergePreserved（同模板克隆 ~99% 复刻）
+		// 含 CSV 源时保留老流式路径（CSV 不是 zip）。
+		if allXlsxSources {
 			w := newPerKeywordSurgeryWriter(outDir, filenamePrefix, headerRow, dedupCfg)
 			return w, w.ImagesMigrated, nil
 		}

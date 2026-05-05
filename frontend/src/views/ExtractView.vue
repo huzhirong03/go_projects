@@ -87,6 +87,22 @@ const hasCSVSource = computed(() => {
     return /\.csv$/i.test(previewState.firstFile || '')
 })
 
+// fidelityHint：根据当前源模式 + 策略，给出保真度的友好提示。
+// v1.3.x 保真度策略：
+//   - 单源（单文件模式）任意策略 → 100% zip 手术复刻，无需提示
+//   - 多源（文件夹模式）per_source → 每源独立输出，100% 复刻，无需提示
+//   - 多源 + per_keyword/merged → 跨源合并：primary 100% + secondary 数据嫁接
+//                                 同模板克隆场景 ~99%；需要提示用户边界
+const fidelityHint = computed(() => {
+    if (form.sourceMode !== 'folder') return ''
+    if (form.strategy === OUTPUT_PER_SOURCE) return ''
+    if (form.strategy === OUTPUT_PER_KEYWORD || form.strategy === OUTPUT_MERGED) {
+        return '跨文件合并：若源是同模板克隆（如一/二/三年级复制自同一母版）约 99% 复刻；' +
+               '如需 100% 完美还原每个源文件，改选"每个源文件一个"。'
+    }
+    return ''
+})
+
 // inplace 只在“单文件 + xlsx”时可用；文件夹 / CSV 都隐藏该选项。
 const inplaceAvailable = computed(() =>
     form.sourceMode === 'file' && form.filePath && !/\.csv$/i.test(form.filePath)
@@ -593,6 +609,10 @@ async function submit() {
                         每个源文件一个</label>
                 </div>
             </div>
+            <div v-if="fidelityHint" class="strip-row fidelity-hint">
+                <span class="strip-title">💡 提示</span>
+                <span>{{ fidelityHint }}</span>
+            </div>
             <div class="strip-row">
                 <span class="strip-title">命名</span>
                 <select v-model="form.filenamePrefix" class="name-select">
@@ -764,6 +784,20 @@ async function submit() {
     font-weight: 600;
 }
 .field-hint { font-size: 12px; color: var(--text-tertiary); margin-left: 6px; }
+.fidelity-hint {
+    padding: 6px 10px;
+    background: rgba(255, 193, 7, 0.08);
+    border-left: 3px solid rgba(255, 193, 7, 0.6);
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+.fidelity-hint .strip-title {
+    color: rgba(180, 120, 0, 0.9);
+    font-weight: 600;
+    flex-shrink: 0;
+}
 .inline-group {
     display: flex; gap: 16px; flex-wrap: wrap;
     color: var(--text);
