@@ -11,59 +11,6 @@
 
 ---
 
-## [v1.4.0] - 2026-05-05
-
-### 新增 (Added)
-
-- **公式自动求值（无缓存值兜底）**：
-  - 解决"搜索公式计算结果搜不到"的问题。`fixture 04` 这类用 `excelize.SetCellFormula`
-    生成、未经 Excel/WPS 保存的文件，公式 cell 只有 `<f>` 没有 `<v>` 缓存值，
-    `xlsxreader` 直接跳过整个 cell，搜 "300" 命中 0 行
-  - 新增 `internal/excelio/EvaluateFormulas(sheet)`：扫描 sheet，对"无 v 有 f"
-    的 cell 调 `excelize.CalcCellValue` 现场求值，返回 `ref → value` map
-  - 新增 `FillRowCellsWithFormulaValues(cells, rowNum, fv)`：扫描循环对空 cell
-    兜底填充。处理 `xlsxreader` 跳过无 v 公式 cell 导致 cells 数组缩短的场景，
-    自动扩展数组长度（返回新切片）
-  - 触发条件：仅 `hasFormulas=true` 时调用，已有缓存值的真实业务文件零开销
-  - 输出端不变：公式仍写 `<f>` 文本，**不会被静态化**为计算值
-  - excelize calc 引擎可正确算单 sheet 算术 + 跨 sheet COUNTIFS / AVERAGEIFS
-
-- **VBA 性能对比脚本**（`test/ExtractByKeyword.bas` + `test/ExtractByKeywordFull.bas`）：
-  - 纯值版（理论极限对比）+ 完整版（带格式 / 公式 / 行高列宽 / 图片，公平对比）
-  - 完整版修复了 5 个 VBA 经典坑：
-    - `ScreenUpdating=False` 时 Shape.Copy 粘空白 → 临时开启
-    - `dstWs.Paste` 必须 `Activate` 目标 Sheet
-    - 大量连续 Shape.Copy 触发 `CLIPBRD_E_CANT_OPEN` → Win32 Sleep + 重试 3 次
-    - `Err` 对象全局残留 → 子函数返回前 `Err.Clear`
-    - `Application.Union` 跨 Sheet 抛 1004 → 每 Sheet 重置 `srcUnion = Nothing`
-
-### 测试 (Tests)
-
-- `internal/excelio/formula_eval_test.go`：覆盖 `EvaluateFormulas`（有/无缓存）+
-  `FillRowCellsWithFormulaValues` 全分支，含**关键回归**："公式列超出 cells 长度
-  时自动扩展"（锁定 xlsxreader 跳无 v cell 行为）
-- `internal/extractor/extractor_formula_eval_test.go`：用真实 fixture 04 验证
-  搜 300 命中 74 行，且输出 K 列仍为公式
-
-### 性能 (Performance)
-
-- 公式预求值：fixture 04 (~3000 行 × 2 公式列 = 6000 cell) 约 1 秒；真实业务
-  文件（>99% 有缓存）EvaluateFormulas 返回空 map，扫描循环零开销
-
-### 用户影响 (User Impact)
-
-- **不再需要手工开 WPS 重新保存源文件**刷公式缓存。用户拿到的"没保存就转发邮件"
-  的 xlsx 现在能端到端搜出来
-
-### 实测对比数据（VBA vs Go，新增到记忆）
-
-| 场景 | VBA 完整版 | Go 程序（本版本）| 差距 |
-|---|---|---|---|
-| 带图片（15 行 + 15 张图） | 12.16 秒 | 1-3 秒 | 5-10× |
-| 纯文字（10 万行 × 14 列） | 10-15 秒 | ~18 秒 | VBA 略快 3-5 秒（前提 Excel 已开） |
-
----
-
 ## [v1.3.1] - 2026-05-05
 
 ### 新增 (Added)
