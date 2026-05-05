@@ -7,8 +7,9 @@
 //   - 多源合并 (merged 模式)
 //
 // 用法：
-//   go run ./cmd/gen-smoke-fixture
-//   go run ./cmd/gen-smoke-fixture -out testdata_smoke -only 01,02
+//
+//	go run ./cmd/gen-smoke-fixture
+//	go run ./cmd/gen-smoke-fixture -out testdata_smoke -only 01,02
 //
 // 所有文件用 StreamWriter 生成，本进程内存占用小。
 package main
@@ -46,6 +47,7 @@ func main() {
 		{"04", "学校成绩册_多Sheet交叉公式（复刻用户实战 case）", gen04_SchoolMultiSheet},
 		{"05", "按列值拆分_30个班级（拆分模式）", gen05_SplitByColumn30Classes},
 		{"06", "批量提取_5个供应商文件（merged 多源合并）", gen06_MultiSourceMerged},
+		{"07", "CSV 编码与分隔符样例_5 个变体 × 1 万行", gen07_CSVSamples},
 	}
 
 	for _, j := range jobs {
