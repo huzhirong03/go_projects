@@ -291,28 +291,6 @@ func processFile(
 	emitter.Log(core.LogInfo, fmt.Sprintf("[TIMING] sheet 预检 %v: hasFormulas=%v, 自定义行高=%d 行",
 		time.Since(tProbe).Round(time.Millisecond), hasFormulas, len(heightMap)))
 
-	// 阶段 1.9：公式回退求值。
-	// 部分文件（如 excelize.SetCellFormula 生成的 fixture、用户手编未保存就发邮件的文件）
-	// 公式 cell 只有 <f> 没有 <v> 缓存值，xlsxreader/excelize 读出来 cell.Value 是空字符串，
-	// 业务搜"300"自然搜不到。此处对 hasFormulas=true 的 sheet 预求值所有"无 v 有 f" cell，
-	// 扫描循环里对空 cell 做兜底填充，让搜索能命中公式计算结果。
-	//
-	// 性能：仅对真正缺缓存的 cell 调 CalcCellValue（fast-skip 已有缓存）。fixture 04 约
-	// 6000 个公式 cell ≈ 1-3 秒。已有缓存的真实业务文件（>99%）此 map 为空，开销 ms 级。
-	// 输出端不受影响：仍走 readRowFormulas 写公式文本，不会变成静态值。
-	var formulaValues map[string]string
-	if hasFormulas {
-		tFormula := time.Now()
-		formulaValues, err = r.EvaluateFormulas(fs.File.SheetName)
-		if err != nil {
-			emitter.Log(core.LogWarn, "公式预求值失败，跳过回退（仅影响无缓存值的搜索匹配）: "+err.Error())
-			formulaValues = nil
-		} else if len(formulaValues) > 0 {
-			emitter.Log(core.LogInfo, fmt.Sprintf("[TIMING] 公式回退求值 %v: 补齐 %d 个无缓存公式 cell",
-				time.Since(tFormula).Round(time.Millisecond), len(formulaValues)))
-		}
-	}
-
 	// 阶段 2：流式行迭代，收集命中行到内存（不加载图片字节）。
 	// A：openScanIterator 优先用 xlsxreader 快路径（PoC 实测比 excelize 快 1.51×），
 	// 不可用时静默回退到 r.Iterate（excelize），业务语义零差异。
@@ -349,12 +327,6 @@ func processFile(
 		cells, err := it.Columns()
 		if err != nil {
 			return len(matchedRows), false, err
-		}
-		// 公式回退兜底：对无 <v> 缓存的公式 cell 用预求值结果填充，使搜索能命中。
-		// 已有缓存的 cell 不变；输出端仍写公式（formulas slice 来自 readRowFormulas）。
-		// 注意 Fill 可能扩展 cells 切片（xlsxreader 跳过无 v 公式 cell 时），必须用返回值。
-		if len(formulaValues) > 0 {
-			cells = excelio.FillRowCellsWithFormulaValues(cells, it.RowNum(), formulaValues)
 		}
 		var kw string
 		if eng.HasKeywords() {

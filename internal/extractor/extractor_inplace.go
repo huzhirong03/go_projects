@@ -310,17 +310,6 @@ func scanHitsForInplace(
 	defer r.Close()
 
 	fileSearchCols := fs.FileSearchColumns(unifiedSearchCols)
-
-	// 公式回退求值：跟新文件路径一致，对无 <v> 缓存的公式 cell 现场求值，
-	// 让搜索能命中公式计算结果（如 K 列 =SUM(...) 算出 300）。
-	// inplace 路径写回是"添加新 Sheet"，不动源 Sheet，所以求值结果只用于搜索匹配，
-	// 不影响源文件公式或写回新 Sheet 的内容。
-	formulaValues, formulaErr := r.EvaluateFormulas(fs.File.SheetName)
-	if formulaErr != nil {
-		emitter.Log(core.LogWarn, "公式预求值失败，跳过回退（仅影响无缓存值的搜索匹配）: "+formulaErr.Error())
-		formulaValues = nil
-	}
-
 	it, err := r.Iterate(fs.File.SheetName)
 	if err != nil {
 		return nil, 0, err
@@ -342,11 +331,6 @@ func scanHitsForInplace(
 		cells, err := it.Columns()
 		if err != nil {
 			return nil, total, err
-		}
-		// 公式回退兜底：对无 <v> 缓存的公式 cell 用预求值结果填充。
-		// Fill 可能扩展 cells 切片，必须用返回值。
-		if len(formulaValues) > 0 {
-			cells = excelio.FillRowCellsWithFormulaValues(cells, it.RowNum(), formulaValues)
 		}
 		var kw string
 		if eng.HasKeywords() {
