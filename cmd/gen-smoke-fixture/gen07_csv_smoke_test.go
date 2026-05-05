@@ -22,27 +22,23 @@ import (
 func TestGen07_CSVFixtures(t *testing.T) {
 	cases := []struct {
 		file             string
-		delimiter        string // "" = 让 OpenCSV 自动嗅探（仅逗号）；其他显式传
+		wantDelim        rune // 期望自动嗅探出的分隔符（验证嗅探正确性）
 		wantVIP, wantRet int
 		totalRowsIncHead int
 	}{
-		// 自动嗅探能识别的组合（逗号 × 3 种编码）
-		{"07_CSV_UTF8_逗号_1万行.csv", "", 2700, 1446, 10001},
-		{"07_CSV_UTF8BOM_逗号_1万行.csv", "", 2700, 1446, 10001},
-		{"07_CSV_GBK_逗号_1万行.csv", "", 2700, 1446, 10001},
-		// 自动嗅探当前不支持的分隔符：用户必须显式传 CSVDelimiter
-		// （ExtractTask.CSVDelimiter 字段就是给这种场景用的）
-		{"07_CSV_UTF8_分号_1万行.csv", ";", 2700, 1446, 10001},
-		{"07_CSV_UTF8_Tab_1万行.csv", "\t", 2700, 1446, 10001},
+		// 编码 + 分隔符全靠自动嗅探（CSVOptions 全空），覆盖 4 大场景：
+		{"07_CSV_UTF8_逗号_1万行.csv", ',', 2700, 1446, 10001},
+		{"07_CSV_UTF8BOM_逗号_1万行.csv", ',', 2700, 1446, 10001},
+		{"07_CSV_GBK_逗号_1万行.csv", ',', 2700, 1446, 10001},
+		{"07_CSV_UTF8_分号_1万行.csv", ';', 2700, 1446, 10001},
+		{"07_CSV_UTF8_Tab_1万行.csv", '\t', 2700, 1446, 10001},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.file, func(t *testing.T) {
 			path := filepath.Join("..", "..", "testdata_smoke", tc.file)
-			// 编码都交给自动嗅探；分隔符非逗号时才显式传
-			r, err := excelio.OpenCSV(path, excelio.CSVOptions{
-				Delimiter: tc.delimiter,
-			})
+			// 编码 + 分隔符 全部空 → 走完整自动嗅探路径
+			r, err := excelio.OpenCSV(path, excelio.CSVOptions{})
 			if err != nil {
 				t.Skipf("fixture 不存在或打开失败（跑 `go run ./cmd/gen-smoke-fixture -only 07` 先生成）: %v", err)
 				return
@@ -78,7 +74,11 @@ func TestGen07_CSVFixtures(t *testing.T) {
 			if ret != tc.wantRet {
 				t.Errorf("退货计数 %d 期望 %d", ret, tc.wantRet)
 			}
-			t.Logf("encoding=%s, total=%d, vip=%d, ret=%d", r.Encoding(), total, vip, ret)
+			if r.Delimiter() != tc.wantDelim {
+				t.Errorf("嗅探分隔符 %q 期望 %q", r.Delimiter(), tc.wantDelim)
+			}
+			t.Logf("encoding=%s, delimiter=%q, total=%d, vip=%d, ret=%d",
+				r.Encoding(), r.Delimiter(), total, vip, ret)
 		})
 	}
 }

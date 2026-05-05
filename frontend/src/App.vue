@@ -52,7 +52,7 @@ async function handleOpenLogFolder() {
 <template>
     <div class="app">
         <header class="topbar">
-            <div class="brand">Excel 拆合大师 v1.4.1 · 大荣老师出品</div>
+            <div class="brand">Excel 拆合大师 v1.5.0 · 大荣老师出品</div>
             <nav class="tabs">
                 <button :class="['tab', { active: activeTab === 'extract' }]"
                         @click="switchTab('extract')">批量提取</button>

@@ -2,6 +2,7 @@ package excelio
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/csv"
 	"io"
 	"os"
@@ -36,6 +37,7 @@ type CSVReader struct {
 	f       *os.File
 	csv     *csv.Reader
 	det     EncodingDetect
+	delim   rune // 实际生效的分隔符（显式指定或嗅探得到）
 	rec     []string
 	err     error
 	row     int // 1-based 已读到的行号（与 xlsx headerRow 对齐）
@@ -69,15 +71,25 @@ func OpenCSV(path string, opts CSVOptions) (*CSVReader, error) {
 		}
 	}
 
+	// 决定分隔符：
+	//   显式指定（","/";"/"\t"/"|" 或别名）→ 直接用
+	//   未指定 / "auto" → 嗅探前 8 KB，选字段数稳定且 >= 2 的候选；都不行 fallback ','
+	chosen := pickDelimiter(opts.Delimiter)
+	if chosen == 0 {
+		if d, ok := sniffDelimiter(br); ok {
+			chosen = d
+		} else {
+			chosen = ','
+		}
+	}
+
 	cr := csv.NewReader(br)
+	cr.Comma = chosen
 	cr.LazyQuotes = true    // 业务 CSV 经常有非法引号，强制容忍
 	cr.FieldsPerRecord = -1 // 容忍每行字段数不同
 	cr.ReuseRecord = true
-	if d := pickDelimiter(opts.Delimiter); d != 0 {
-		cr.Comma = d
-	}
 
-	out := &CSVReader{f: f, csv: cr, det: det}
+	out := &CSVReader{f: f, csv: cr, det: det, delim: chosen}
 	if stat != nil {
 		out.total = stat.Size()
 	}
@@ -112,6 +124,9 @@ func (r *CSVReader) Err() error { return r.err }
 // Encoding 实际生效的编码名，用于日志/UI 反馈。
 func (r *CSVReader) Encoding() string { return r.det.Name }
 
+// Delimiter 实际生效的分隔符（显式指定或自动嗅探的结果）。日志/UI 用。
+func (r *CSVReader) Delimiter() rune { return r.delim }
+
 // FileSize 文件总字节数（用于按字节比例做进度条；Stat 失败时为 0）。
 func (r *CSVReader) FileSize() int64 { return r.total }
 
@@ -126,11 +141,18 @@ func (r *CSVReader) Close() error {
 }
 
 // pickDelimiter 把 UI/任务参数里的分隔符字符串转成 rune。
-// 接受常见别名："comma" / "tab" / "\t" / ";" 等；不合法或空返回 0（表示走默认逗号）。
+//
+// 返回值约定：
+//   - 0  = 用户没明确指定（"" / "auto"），调用方应触发 sniffDelimiter
+//   - 非 0 = 用户明确选了某个分隔符（含显式选 ","/"comma"），直接使用，不嗅探
+//
+// 别名："comma"=','  "semicolon"=';'  "tab"/"TAB"/"\t"=\t  "pipe"='|'
 func pickDelimiter(s string) rune {
 	switch s {
-	case "", "auto", ",", "comma":
-		return 0
+	case "", "auto":
+		return 0 // 触发嗅探
+	case ",", "comma":
+		return ','
 	case ";", "semicolon":
 		return ';'
 	case "\t", "tab", "TAB":
@@ -145,4 +167,89 @@ func pickDelimiter(s string) rune {
 		return c
 	}
 	return 0
+}
+
+// sniffDelimiter 从 br 中 Peek 前 8 KB（不消耗读位置），尝试在候选
+// {',', ';', '\t', '|'} 中找出最可能的字段分隔符。
+//
+// 算法：对每个候选，用真实的 csv.Reader 切前 N 行（自动处理 quote 转义），
+// 统计每行字段数；选"字段数中位数 >= 2 且 90%+ 行间一致"的候选。
+// 同分时按 ',' > ';' > '\t' > '|' 优先级（逗号优先保兼容）。
+//
+// 这是 Python csv.Sniffer / R read_csv / Excel 导入向导都在用的标准做法。
+// Peek 不会推进 br 的读取位置，所以嗅探完后 csv.Reader 还能从头读完整数据。
+func sniffDelimiter(br *bufio.Reader) (rune, bool) {
+	const sniffSize = 8 * 1024
+	buf, _ := br.Peek(sniffSize)
+	if len(buf) < 4 { // 至少要有几行才有意义
+		return 0, false
+	}
+
+	candidates := []rune{',', ';', '\t', '|'} // 顺序决定同分时优先级
+	var bestRune rune
+	var bestScore float64 = -1
+
+	for _, c := range candidates {
+		score := scoreSniffCandidate(buf, c)
+		if score > bestScore {
+			bestScore = score
+			bestRune = c
+		}
+	}
+	if bestScore <= 0 {
+		return 0, false
+	}
+	return bestRune, true
+}
+
+// scoreSniffCandidate 用候选分隔符切前 50 行，返回质量分数：
+//   - 字段数 < 2 的行视为切失败 -> 整体 0 分
+//   - 字段数中位数 * 行间一致性比例（0..1）即为分数
+//
+// 真实 CSV 用此函数：逗号 CSV 用逗号切 → 6 字段 × 100% = 6.0；用分号切 → 1 字段 → 0。
+func scoreSniffCandidate(buf []byte, d rune) float64 {
+	cr := csv.NewReader(bytes.NewReader(buf))
+	cr.Comma = d
+	cr.LazyQuotes = true
+	cr.FieldsPerRecord = -1
+
+	var counts []int
+	for i := 0; i < 50; i++ {
+		rec, err := cr.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			// 解析失败的候选直接淘汰（quote 错位等极端情况）
+			break
+		}
+		if len(rec) == 0 {
+			continue
+		}
+		counts = append(counts, len(rec))
+	}
+	// 由于 Peek 截断，最后一行很可能不完整：丢弃
+	if len(counts) >= 2 {
+		counts = counts[:len(counts)-1]
+	}
+	if len(counts) < 1 {
+		return 0
+	}
+
+	// 用首行作为基线（CSV 表头通常字段数 = 数据行）
+	first := counts[0]
+	if first < 2 {
+		return 0 // 切不开就是错的分隔符
+	}
+	same := 0
+	for _, c := range counts {
+		if c == first {
+			same++
+		}
+	}
+	consistency := float64(same) / float64(len(counts))
+	if consistency < 0.9 {
+		return 0 // 行与行字段数不一致 = 切错了
+	}
+	return float64(first) * consistency
 }
