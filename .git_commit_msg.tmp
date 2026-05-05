@@ -1,0 +1,49 @@
+feat(extractor): precise formula evaluation for uncached cells (plan A+)
+
+Replaces the v1.4.0 full-table EvaluateFormulas (which slowed every
+hasFormulas sheet by 5-20 seconds even when all cells already had a
+cached value) with a precise on-demand strategy that piggy-backs on
+the existing ProbeSheet zip scan.
+
+How it works:
+1. ProbeSheet (already does one streaming zip scan to find <f> tags
+   and row heights) now also tracks each <c> cell to detect "has <f>
+   but no <v>" cells, recording the cell ref and formula text in
+   r.uncachedFormulasCache. Same scan, no extra I/O.
+2. New accessor r.UncachedFormulas(sheet) returns the map. For real
+   business files (>99% of which save the cached <v> via Excel/WPS),
+   the map is empty.
+3. New r.EvalFormulasAt(sheet, refs) calls excelize.CalcCellValue ONLY
+   on the listed cell refs - never iterates the whole sheet.
+4. Both extractor.processFile and extractor_inplace.go fetch
+   uncachedFormulas; if empty, the entire formula-eval path is skipped.
+   If non-empty, batch CalcCellValue runs once per sheet, results are
+   filled into the cells slice in the scan loop via
+   FillRowCellsWithFormulaValues (auto-extends slice when xlsxreader
+   skipped K/L columns entirely).
+
+Performance verified end-to-end:
+- fixture 04 (3000 rows, K/L formula columns, no v cache): TestExtract_FormulaCacheFallback
+  finishes in 2.02s (down from 20s in v1.4.0). 74 rows match search "300".
+- Output K column still contains formula <f>F2+G2+H2+I2+J2</f>, not
+  the static value 300.
+- Full regression: go test ./... PASS for excelio / extractor / filter
+  / matcher / pipeline / service / splitter.
+
+Real-business-file zero-overhead guarantee:
+- ProbeSheet does one zip scan regardless (already needed for
+  hasFormulas + row heights), so no new I/O.
+- For files with all <v> caches present, uncachedFormulasCache[sheet]
+  is empty -> EvalFormulasAt is never called -> Fill is never called
+  -> scan loop performance is identical to v1.3.1.
+
+Tests:
+- internal/excelio/formula_eval_test.go covers UncachedFormulas (with
+  and without uncached cells), EvalFormulasAt (precise refs only,
+  empty refs are no-op), and FillRowCellsWithFormulaValues (including
+  the critical "auto-extend cells when xlsxreader skipped uncached
+  formula cells").
+- internal/extractor/extractor_formula_eval_test.go runs Extract on
+  real fixture 04 with a 10s performance gate, verifying both
+  correctness (74 rows hit, formula preserved in output) and that the
+  total time stays well below v1.4.0's regression.

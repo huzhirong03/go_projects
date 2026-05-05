@@ -291,6 +291,37 @@ func processFile(
 	emitter.Log(core.LogInfo, fmt.Sprintf("[TIMING] sheet 预检 %v: hasFormulas=%v, 自定义行高=%d 行",
 		time.Since(tProbe).Round(time.Millisecond), hasFormulas, len(heightMap)))
 
+	// 阶段 1.9：公式回退精准求值（方案 A+，v1.4.1）。
+	//
+	// ProbeSheet 在 zip 流式扫描时已经顺手收集了"有 <f> 无 <v>" cell 的 ref + 公式文本
+	// （写入 r.uncachedFormulasCache）。这里只对这些 ref 批量调 CalcCellValue。
+	//
+	// 性能保证：
+	//   - 真实业务文件（>99% 公式都有 <v> 缓存）→ uncached map 为空 → 完全跳过求值
+	//     （扫描阶段性能跟 v1.3.1 完全一致，无回归）
+	//   - fixture 04 / 用户未保存文件 → uncached map 里有若干 ref → 只算这些 cell，
+	//     不扫全表，fixture 04 (6000 cell) 约 2-3 秒
+	//
+	// 为什么不用 v1.4.0 的 EvaluateFormulas 全表扫：那个方案不管文件是否已有缓存
+	// 都会用 excelize.Rows 遍历整个 sheet 查每个 cell，10 万行场景慢 20 秒（严重回归）。
+	var formulaValues map[string]string
+	if hasFormulas {
+		uncached, uerr := r.UncachedFormulas(fs.File.SheetName)
+		if uerr != nil {
+			emitter.Log(core.LogWarn, "获取无缓存公式 cell 列表失败，跳过回退求值: "+uerr.Error())
+		} else if len(uncached) > 0 {
+			tFormula := time.Now()
+			formulaValues, err = r.EvalFormulasAt(fs.File.SheetName, uncached)
+			if err != nil {
+				emitter.Log(core.LogWarn, "公式精准求值失败，跳过回退: "+err.Error())
+				formulaValues = nil
+			} else {
+				emitter.Log(core.LogInfo, fmt.Sprintf("[TIMING] 公式精准求值 %v: %d 个 uncached cell -> %d 个求出结果",
+					time.Since(tFormula).Round(time.Millisecond), len(uncached), len(formulaValues)))
+			}
+		}
+	}
+
 	// 阶段 2：流式行迭代，收集命中行到内存（不加载图片字节）。
 	// A：openScanIterator 优先用 xlsxreader 快路径（PoC 实测比 excelize 快 1.51×），
 	// 不可用时静默回退到 r.Iterate（excelize），业务语义零差异。
@@ -327,6 +358,13 @@ func processFile(
 		cells, err := it.Columns()
 		if err != nil {
 			return len(matchedRows), false, err
+		}
+		// 公式回退兜底（方案 A+）：对无 <v> 缓存的公式 cell 用预求值结果填充，
+		// 让搜索能命中公式计算结果。formulaValues 为空（真实业务文件场景）时
+		// Fill 内部直接 return cells 不变，零开销。Fill 在 xlsxreader 跳过无 v
+		// 公式 cell 导致 cells 数组缩短的情况下会自动扩展数组——必须用返回值。
+		if len(formulaValues) > 0 {
+			cells = excelio.FillRowCellsWithFormulaValues(cells, it.RowNum(), formulaValues)
 		}
 		var kw string
 		if eng.HasKeywords() {

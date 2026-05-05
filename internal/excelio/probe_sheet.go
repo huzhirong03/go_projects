@@ -22,6 +22,7 @@ import (
 	"archive/zip"
 	"encoding/xml"
 	"strconv"
+	"strings"
 
 	"excel-master/internal/core"
 )
@@ -30,6 +31,11 @@ import (
 // 两个结果都会被写入 Reader 的独立 cache，后续 SheetHasFormulas / RowHeights
 // 对同 sheet 的调用可以零 I/O 命中缓存。
 //
+// 同一次扫描还会**顺手**收集"有 <f> 无 <v>"的 cell 信息并写入 r.uncachedFormulasCache，
+// 外层通过 r.UncachedFormulas(sheet) 读取。真实业务文件（>99% 公式有缓存）该 map
+// 为空，extractor 据此零开销跳过回退求值；fixture 04 / 未保存的文件该 map 非空，
+// extractor 只对其中的 cell 调 CalcCellValue。本函数签名不变，保持向后兼容。
+//
 // 失败时返回 (false, nil, err)；调用方通常选择按"有公式 + 无行高 map"保守回退，
 // 保证公式/行高的业务行为仍然正确，只是性能降级。
 func (r *Reader) ProbeSheet(sheet string) (hasFormulas bool, heightMap map[int]float64, err error) {
@@ -37,10 +43,11 @@ func (r *Reader) ProbeSheet(sheet string) (hasFormulas bool, heightMap map[int]f
 		return false, nil, core.New("EXCEL_READ_FAILED", "Reader 未关联源文件路径")
 	}
 
-	// 两个 cache 都命中就直接组合返回，省掉 zip 开销。
+	// 三个 cache 都命中就直接组合返回，省掉 zip 开销。
 	_, hasHF := r.formulaProbeCache[sheet]
 	_, hasRH := r.rowHeightMapCache[sheet]
-	if hasHF && hasRH {
+	_, hasUC := r.uncachedFormulasCache[sheet]
+	if hasHF && hasRH && hasUC {
 		return r.formulaProbeCache[sheet], r.rowHeightMapCache[sheet], nil
 	}
 
@@ -50,6 +57,9 @@ func (r *Reader) ProbeSheet(sheet string) (hasFormulas bool, heightMap map[int]f
 	}
 	if r.rowHeightMapCache == nil {
 		r.rowHeightMapCache = map[string]map[int]float64{}
+	}
+	if r.uncachedFormulasCache == nil {
+		r.uncachedFormulasCache = map[string]map[string]string{}
 	}
 
 	zr, zerr := zip.OpenReader(r.path)
@@ -71,9 +81,10 @@ func (r *Reader) ProbeSheet(sheet string) (hasFormulas bool, heightMap map[int]f
 		}
 	}
 	if sheetFile == nil {
-		// 找不到 sheet XML：保守返回"有公式 + 空行高"走原路径，确保业务不丢数据
+		// 找不到 sheet XML：保守返回"有公式 + 空行高 + 空 uncached"走原路径
 		r.formulaProbeCache[sheet] = true
 		r.rowHeightMapCache[sheet] = map[int]float64{}
+		r.uncachedFormulasCache[sheet] = map[string]string{}
 		return true, map[int]float64{}, nil
 	}
 
@@ -84,6 +95,17 @@ func (r *Reader) ProbeSheet(sheet string) (hasFormulas bool, heightMap map[int]f
 	defer rc.Close()
 
 	heights := map[int]float64{}
+	uncached := map[string]string{}
+
+	// <c> cell 级状态：
+	//   curCellRef：当前 cell 的 ref (形如 "K2")，空串表示当前不在 cell 内
+	//   seenF / seenV：当前 cell 内是否已经见过 <f> / <v> StartElement
+	//   curFormula：当前 cell 的公式文本（<f> 内的 CharData，供回退求值使用）
+	//   inFormula：当前 xml.Decoder 的游标是否在 <f>...</f> 内（用于捕获 CharData）
+	var curCellRef string
+	var seenF, seenV, inFormula bool
+	var curFormula strings.Builder
+
 	dec := xml.NewDecoder(rc)
 	for {
 		tok, derr := dec.Token()
@@ -91,41 +113,74 @@ func (r *Reader) ProbeSheet(sheet string) (hasFormulas bool, heightMap map[int]f
 			// EOF / 解析错误都当扫完处理——保留已收集的结果
 			break
 		}
-		se, ok := tok.(xml.StartElement)
-		if !ok {
-			continue
-		}
-		switch se.Name.Local {
-		case "f":
-			// OOXML 公式 cell 形如 <c r="A1"><f>...</f><v>...</v></c>
-			hasFormulas = true
-		case "row":
-			// <row r="N" ht="X" customHeight="1">
-			var rowNum int
-			var ht float64
-			var hasHt bool
-			for _, attr := range se.Attr {
-				switch attr.Name.Local {
-				case "r":
-					if n, perr := strconv.Atoi(attr.Value); perr == nil {
-						rowNum = n
-					}
-				case "ht":
-					if h, perr := strconv.ParseFloat(attr.Value, 64); perr == nil {
-						ht = h
-						hasHt = true
+		switch el := tok.(type) {
+		case xml.StartElement:
+			switch el.Name.Local {
+			case "c":
+				// 进入新 cell：重置所有 cell 级状态，提取 r 属性
+				curCellRef = ""
+				seenF = false
+				seenV = false
+				inFormula = false
+				curFormula.Reset()
+				for _, attr := range el.Attr {
+					if attr.Name.Local == "r" {
+						curCellRef = attr.Value
+						break
 					}
 				}
+			case "f":
+				// OOXML 公式 cell 形如 <c r="A1"><f>...</f><v>...</v></c>
+				hasFormulas = true
+				seenF = true
+				inFormula = true
+				curFormula.Reset()
+			case "v":
+				seenV = true
+			case "row":
+				// <row r="N" ht="X" customHeight="1">
+				var rowNum int
+				var ht float64
+				var hasHt bool
+				for _, attr := range el.Attr {
+					switch attr.Name.Local {
+					case "r":
+						if n, perr := strconv.Atoi(attr.Value); perr == nil {
+							rowNum = n
+						}
+					case "ht":
+						if h, perr := strconv.ParseFloat(attr.Value, 64); perr == nil {
+							ht = h
+							hasHt = true
+						}
+					}
+				}
+				// 与 r.RowHeight 的语义一致：默认 15.0 / 0 视为未自定义，不入 map
+				if rowNum > 0 && hasHt && ht != 15.0 && ht != 0 {
+					heights[rowNum] = ht
+				}
 			}
-			// 与 r.RowHeight 的语义一致：默认 15.0 / 0 视为未自定义，不入 map
-			if rowNum > 0 && hasHt && ht != 15.0 && ht != 0 {
-				heights[rowNum] = ht
+		case xml.CharData:
+			// 只有 <f>...</f> 内部的文本才收进 curFormula
+			if inFormula {
+				curFormula.Write(el)
+			}
+		case xml.EndElement:
+			switch el.Name.Local {
+			case "f":
+				inFormula = false
+			case "c":
+				// cell 结束：如果见过 <f> 但没见过 <v>，记入 uncached
+				if seenF && !seenV && curCellRef != "" {
+					uncached[curCellRef] = curFormula.String()
+				}
 			}
 		}
 	}
 
-	// 回填两个 cache
+	// 回填三个 cache
 	r.formulaProbeCache[sheet] = hasFormulas
 	r.rowHeightMapCache[sheet] = heights
+	r.uncachedFormulasCache[sheet] = uncached
 	return hasFormulas, heights, nil
 }

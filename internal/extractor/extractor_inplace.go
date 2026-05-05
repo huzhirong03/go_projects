@@ -310,6 +310,21 @@ func scanHitsForInplace(
 	defer r.Close()
 
 	fileSearchCols := fs.FileSearchColumns(unifiedSearchCols)
+
+	// 公式回退精准求值（方案 A+，与 extractor.processFile 同款）。
+	// UncachedFormulas 内部会触发 ProbeSheet 一次 zip 扫描（如未缓存），
+	// 真实业务文件公式都有 <v> → 返回空 map → 后续不调 EvalFormulasAt，零额外耗时。
+	var formulaValues map[string]string
+	if uncached, uerr := r.UncachedFormulas(fs.File.SheetName); uerr != nil {
+		emitter.Log(core.LogWarn, "获取无缓存公式 cell 列表失败，跳过回退求值: "+uerr.Error())
+	} else if len(uncached) > 0 {
+		if vals, eerr := r.EvalFormulasAt(fs.File.SheetName, uncached); eerr != nil {
+			emitter.Log(core.LogWarn, "公式精准求值失败，跳过回退: "+eerr.Error())
+		} else {
+			formulaValues = vals
+		}
+	}
+
 	it, err := r.Iterate(fs.File.SheetName)
 	if err != nil {
 		return nil, 0, err
@@ -331,6 +346,10 @@ func scanHitsForInplace(
 		cells, err := it.Columns()
 		if err != nil {
 			return nil, total, err
+		}
+		// 公式回退兜底（仅 formulaValues 非空时跑，真实业务文件零开销）
+		if len(formulaValues) > 0 {
+			cells = excelio.FillRowCellsWithFormulaValues(cells, it.RowNum(), formulaValues)
 		}
 		var kw string
 		if eng.HasKeywords() {

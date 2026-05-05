@@ -64,6 +64,13 @@ type Reader struct {
 	// 之后每命中行用 O(1) hash 查 map 替代 excelize.GetRowHeight 的 O(N) linear scan，
 	// fixture 01 约省 10 秒（14286 命中 × 每次 832µs = 11.9s → 1 次 2s）。
 	rowHeightMapCache map[string]map[int]float64
+	// uncachedFormulasCache 缓存 ProbeSheet 扫描时顺手收集到的"有 <f> 无 <v>" cell：
+	// key = sheet 名，value = map[cellRef]formulaText（比如 {"K2":"F2+G2+H2+I2+J2"}）
+	// 真实业务文件（>99% 公式都有缓存值）此 map 为空；SetCellFormula 生成但未经 Excel
+	// 保存的文件（如 fixture 04、用户编辑没保存就发邮件的）此 map 非空。
+	// 上层 extractor 仅对非空时的 cell 批量调 CalcCellValue 求值，避免全表扫描，
+	// 让搜索能命中公式计算结果同时保持扫描性能不回归。
+	uncachedFormulasCache map[string]map[string]string
 }
 
 // Open 以只读模式打开一个 xlsx 文件。
