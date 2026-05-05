@@ -53,3 +53,6 @@ testdata_*_private/
 # 鏈満 IDE 鏂囦欢
 .idea/
 .vscode/
+
+# 临时 commit message 文件，不应提交
+.git_commit_msg.tmp
