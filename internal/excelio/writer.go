@@ -80,6 +80,26 @@ func (w *Writer) RemoveDefaultSheet() error {
 	return nil
 }
 
+// SetSheetDefaultRowHeight 设置指定 Sheet 的 defaultRowHeight（pt）。
+// 用于让 excelize.AddPictureFromBytes 在插入 twoCellAnchor 图片时，按这个值
+// 反算 to.row（而不是用 excelize 内部硬编码的 15pt），避免"源行高 36pt、目标
+// 未设 defaultRowHeight"时图片被 excelize 按 15pt 推算跨 2~3 行的变形问题。
+//
+// customHeight=true 表示该默认高度是用户显式设置的（Excel 会在 UI 上勾选"自定义"）。
+func (w *Writer) SetSheetDefaultRowHeight(sheet string, height float64) error {
+	if height <= 0 {
+		return nil
+	}
+	custom := true
+	if err := w.f.SetSheetProps(sheet, &excelize.SheetPropsOptions{
+		DefaultRowHeight: &height,
+		CustomHeight:     &custom,
+	}); err != nil {
+		return core.Wrap("EXCEL_WRITE_FAILED", "设置默认行高失败", err)
+	}
+	return nil
+}
+
 // Save 写盘到目标路径。调用前会先 Flush 所有 StreamSheet。
 func (w *Writer) Save(path string) error {
 	for name, s := range w.streams {

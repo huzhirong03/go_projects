@@ -389,7 +389,7 @@ func processFile(
 					Message: fmt.Sprintf("加载命中行图片 %d / %d", done, total),
 				})
 			}
-			picsByRow, err = zipSrc.LoadPicturesForRowsZip(fs.File.SheetName, rows, picProgress)
+			picsByRow, err = zipSrc.LoadPicturesForRowsZip(fs.File.SheetName, rows, heightMap, picProgress)
 			if err != nil {
 				emitter.Log(core.LogWarn, "zip 加载命中行图片失败，降级为不带图: "+err.Error())
 				picsByRow = nil

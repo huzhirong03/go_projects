@@ -14,12 +14,13 @@ import (
 
 // outputStream 代表一个正在打开的输出 xlsx 文件及其 StreamSheet。
 type outputStream struct {
-	path             string
-	w                *excelio.Writer
-	s                *excelio.StreamSheet
-	sheet            string
-	curRow           int // 已写入的最后一行（1-based）
-	colWidthsApplied bool
+	path                string
+	w                   *excelio.Writer
+	s                   *excelio.StreamSheet
+	sheet               string
+	curRow              int // 已写入的最后一行（1-based）
+	colWidthsApplied    bool
+	defaultHeightLocked bool // 已经尝试设过 defaultRowHeight（幂等）
 }
 
 // openOutput 创建一个输出文件的 writer（文件不立即落盘，Save 时才写）。
@@ -75,24 +76,43 @@ func (o *outputStream) writeRow(values []any, srcRow int, height float64) (int, 
 }
 
 // buildAdjustedRow 处理 values 里的 excelize.Cell：尝试同行偏移公式，不安全则回退写值。
+// 同时对所有纯字符串 value 应用 coerceScalar，把"原本是数字的文本"恢复为 float64，
+// 避免 Excel 显示"数字以文本形式存储"（左上角绿三角）。
 func buildAdjustedRow(values []any, srcRow, dstRow int) []any {
 	out := make([]any, len(values))
 	for i, v := range values {
 		cell, isCell := v.(excelize.Cell)
-		if !isCell || cell.Formula == "" || srcRow <= 0 {
-			out[i] = v
+		if !isCell {
+			// 普通 any：若是 string 则尝试恢复为数字，否则原样透传
+			if s, ok := v.(string); ok {
+				out[i] = coerceScalar(s)
+			} else {
+				out[i] = v
+			}
 			continue
 		}
-		// excelize GetCellFormula 返回的公式已经带 "="，RewriteFormulaSameRow 也容错处理
-		rewritten, ok := excelio.RewriteFormulaSameRow(cell.Formula, srcRow, dstRow)
-		if ok {
-			// 把 "=" 前缀剥掉再赋回，避免 excelize 内部输出 "==..."
-			cell.Formula = strings.TrimPrefix(rewritten, "=")
-			out[i] = cell
+		// 有公式：尝试同行偏移重写
+		if cell.Formula != "" && srcRow > 0 {
+			rewritten, ok := excelio.RewriteFormulaSameRow(cell.Formula, srcRow, dstRow)
+			if ok {
+				// 把 "=" 前缀剥掉再赋回，避免 excelize 内部输出 "==..."
+				cell.Formula = strings.TrimPrefix(rewritten, "=")
+				out[i] = cell
+				continue
+			}
+			// 公式不安全：回退写缓存值（也 coerce）
+			if s, ok := cell.Value.(string); ok {
+				out[i] = coerceScalar(s)
+			} else {
+				out[i] = cell.Value
+			}
 			continue
 		}
-		// 不安全：回退写缓存值
-		out[i] = cell.Value
+		// excelize.Cell 但无公式：对其 Value 做 coerce 后原封放回 Cell
+		if s, ok := cell.Value.(string); ok {
+			cell.Value = coerceScalar(s)
+		}
+		out[i] = cell
 	}
 	return out
 }
@@ -108,6 +128,22 @@ func (o *outputStream) applyColumnWidthsIfNeeded(widths map[int]float64) error {
 		return nil
 	}
 	return o.s.SetColumnWidths(widths)
+}
+
+// ensureDefaultHeightForPics 在第一次迁移图片前，把目标 sheet 的 defaultRowHeight
+// 设为源命中行的代表 ht。目的：让 excelize.AddPictureFromBytes 在 twoCellAnchor
+// 模式下用"正确的行高 base"反算 to.row，避免源 36pt、目标默认 15pt 的差异导致
+// 图片在新文件里跨 2~3 行变形。
+//
+// 幂等：多次调用只生效一次（第一次传入的 ht）。ht <= 0 时不设置。
+func (o *outputStream) ensureDefaultHeightForPics(ht float64) {
+	if o.defaultHeightLocked {
+		return
+	}
+	o.defaultHeightLocked = true
+	if ht > 0 {
+		_ = o.w.SetSheetDefaultRowHeight(o.sheet, ht)
+	}
 }
 
 // migratePictures 把源行的所有图片重新插入到目标行。

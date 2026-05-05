@@ -11,6 +11,67 @@
 
 ---
 
+## [v1.2.2] - 2026-05-05
+
+### 修复 (Fixed)
+
+- **数字列以文本形式存储（左上角绿三角）**：源文件里本应是数字的列（如分数、金额、总分），
+  经过批量提取后在结果文件里变成"文本"状态，Excel 打开显示绿色三角警告，且无法做
+  sum/avg 等数值运算。
+  - 根因 1（新文件模式）：excelize 流式读 `Rows.Columns()` 返回 `[]string`，写入时用
+    字符串 `SetRow` → Excel 识别为文本列
+  - 根因 2（inplace 模式）：源 xlsx 里数字列若以 shared string / inline string 存储
+    （从第三方系统导出 / VBA 写入的 xlsx 常见），zip 手术字节级复制后仍保留 `t="s"` /
+    `t="inlineStr"` 属性 → Excel 识别为文本
+  - 修复：新增 `excelio.CoerceScalar()` 智能识别字符串里的数字，并分两层应用：
+    - writer 层：`extractor/writer_common.go` 的 `buildAdjustedRow` 对每个 string value
+      尝试 coerce 为 float64（覆盖"新文件"输出路径）
+    - xml 层：`excelio.CoerceStringCellsToNumbers()` 扫描 sheet.xml，把 t="s" /
+      t="inlineStr" 且内容能被识别为数字的 cell 改写为纯数字 cell（覆盖 inplace
+      zip 手术路径）
+  - 保守规则（避免误转字符串语义的字段）：
+    - 含 `e/E`（科学计数法）、整数位 > 10（手机号/身份证）、ParseFloat 失败、
+      round-trip 严格不等（`0123` `1.50` `+89` 等格式化差异）→ 保留字符串
+    - 含 `<f>` 公式的 cell / rich text（多段 `<r>`）的 shared string 不动
+
+- **新文件模式图片变形（图片跨多行撑大）**：批量提取"新文件"输出目标下，源文件里的
+  图片（typical twoCellAnchor editAs="oneCell" + spPr/xfrm/ext.cx/cy=0）被写到新
+  xlsx 后占据 2~3 个单元格高度，Excel 打开显示图片"跨多行且被拉伸"。inplace 模式
+  无此问题（走 zip 手术字节级复制）。
+  - 根因 1：`zipimage_parse.go.decodeTwoCellAnchor` 只从 spPr/xfrm/ext 读 cx/cy，
+    而许多 xlsx（WPS 导出 / 业务系统生成）把这两个字段写成 0（真实渲染尺寸由
+    from-to 网格推导，不在 ext 里）。导致 `buildGraphicOptions` 的 ScaleX/ScaleY
+    退化为 1.0，excelize 按图片原始像素（如 200×270px）插入，远超单元格。
+  - 根因 2：excelize.AddPictureFromBytes 在 twoCellAnchor 模式下按目标 sheet 的
+    `defaultRowHeight`（默认 15pt）反算 to.row。新文件未设 defaultRowHeight，
+    源行高 36pt 的图片被按 15pt 切成 ~2.4 行。
+  - 修复 1：`zipimage.go.inferTwoCellAnchorCxCy`——当 ext.cx/cy=0 时，从 from-to
+    网格 + rowHeights map 反推真实渲染 EMU。cy 支持同行 / 跨任意行，cx 仅同列
+    精确计算（跨列留给 excelize 默认兜底，罕见场景）。
+  - 修复 2：`writer_common.go.ensureDefaultHeightForPics` + `writer.go.SetSheetDefaultRowHeight`
+    ——首次带图命中行写入前，把源行 ht 复制到目标 sheet 的 defaultRowHeight
+    （通过 excelize.SheetPropsOptions），让 excelize 用对的行高 base 反算 to.row。
+  - 修复 3：`zipimage.go.buildGraphicOptions` 把源 anchor 的 from.colOff / rowOff
+    转为像素填入 `GraphicOptions.OffsetX/OffsetY`（1 px = 9525 EMU），保留图片
+    在 cell 内的顶部 / 左侧边距（典型值 rowOff=19050 EMU ≈ 2px）。否则 excelize
+    默认把图片紧贴 cell 左上角，用户看到"图片布满单元格、没有空位"。
+  - 效果：用户案例（源 36pt、照片 ≈34px、rowOff=2px）修复前图片跨 3 行渲染
+    （971550 EMU，222% 源尺寸 + 无上边距），修复后跨 2 行（485775 EMU，
+    111% 源尺寸 + 2px 上边距），视觉接近 98% 源文件效果。剩余 11% 尺寸误差
+    是 excelize positionObjectPixels 内部算法固有偏差，彻底消除需要直接改
+    drawing.xml（留给后续版本）。
+
+### 测试 (Tests)
+
+- `excelio/coerce_cells_test.go`: 覆盖 `CoerceScalar` / `CoerceStringToNumber` /
+  `parseSharedStrings` / 4 种 `CoerceStringCellsToNumbers` 场景（shared/inline/
+  公式跳过/已数字跳过）
+- `excelio/zipimage_infer_test.go`: 覆盖 `inferTwoCellAnchorCxCy` 的 6 种场景
+  （同列同行 / 同列跨 1 行 / 跨多行 / 无 rowHeights / 跨列 / 非 twoCell）
+- `extractor/coerce_test.go`: 端到端 smoke 测覆盖 writer 层的 coerce 路径
+
+---
+
 ## [v1.2.1] - 2026-05-05
 
 ### 修改 (Changed)

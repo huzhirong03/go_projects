@@ -134,8 +134,15 @@ func AddFilteredSheetsZip(srcPath, dstPath string, specs []InplaceSheetSpec) err
 	}
 
 	// 3. 写新 sheet/drawing/rels 条目
+	// 加载 sharedStrings 表一次：用于在 sheet xml 重写阶段把
+	// "看起来是数字的 shared/inline string cell" 智能转成纯数字 cell，
+	// 解决 Excel 的"数字以文本形式存储"（左上角绿三角）告警。
+	sharedStrings, err := LoadSharedStrings(&src.Reader)
+	if err != nil {
+		return err
+	}
 	for _, p := range plans {
-		if err := writePlannedSheet(&src.Reader, dst, p); err != nil {
+		if err := writePlannedSheet(&src.Reader, dst, p, sharedStrings); err != nil {
 			return err
 		}
 	}
@@ -419,7 +426,7 @@ func planInplaceSpecs(layout *fullXlsxLayout, specs []InplaceSheetSpec) ([]plann
 	return plans, nil
 }
 
-func writePlannedSheet(zr *zip.Reader, dst *zip.Writer, p plannedSheet) error {
+func writePlannedSheet(zr *zip.Reader, dst *zip.Writer, p plannedSheet, sharedStrings []string) error {
 	// 新 sheet xml = 源 sheet xml 经 unshare + rewriteSheetXML 过滤
 	// 源 sheet xml 里的 <drawing r:id> / <legacyDrawing r:id> / <hyperlink r:id> / <oleObjects>
 	// 等节点不动，因为新 sheet rels 会复制源 sheet rels 的全部条目（rId 保一致）。
@@ -434,6 +441,8 @@ func writePlannedSheet(zr *zip.Reader, dst *zip.Writer, p plannedSheet) error {
 	if err != nil {
 		return err
 	}
+	// cell 类型智能修复：把"看起来是数字"的 shared/inline string cell 转为纯数字 cell
+	newSheetData = CoerceStringCellsToNumbers(newSheetData, sharedStrings)
 	if err := writeZipEntry(dst, p.newSheet, newSheetData); err != nil {
 		return err
 	}

@@ -64,6 +64,13 @@ type parsedAnchor struct {
 	lockAspect  bool
 	altText     string
 	name        string
+
+	// twoCellAnchor 网格定位字段：用于 spPr/xfrm/ext.cx/cy = 0 时 fallback
+	// 推算渲染尺寸（许多 xlsx 把 ext 写成 0，渲染尺寸完全靠 from-to 推导）。
+	// toRow == 0 表示这不是 twoCellAnchor 或解析失败。
+	fromColOff, fromRowOff int64
+	toCol, toRow           int // 1-based
+	toColOff, toRowOff     int64
 }
 
 // OpenZipImageSource 用 archive/zip 打开 xlsx，只读中央目录，不加载 media。
@@ -262,8 +269,14 @@ func (s *ZipImageSource) PictureCellsByRow(sheet string) map[int][]PictureCellRe
 
 // LoadPicturesForRowsZip 按指定行号加载图片字节，返回 row → []CellPictures。
 // 不调 excelize.GetPictures，纯走 zip 读 + 一次 image.DecodeConfig 算 Scale。
+//
+// rowHeightsPt 为源 sheet 的自定义行高 map（1-based row → pt），调用方传 Reader.RowHeights
+// 的结果即可；nil 视为"所有行都是默认行高"。对 twoCellAnchor 且 spPr/xfrm/ext.cx/cy=0
+// 的 anchor（常见于 WPS / 从系统导出的 xlsx），会根据 from-to 网格 + rowHeights
+// 反推真实渲染 EMU，避免 excelize.AddPictureFromBytes 按图片原始像素插入导致的
+// "图片占多行且变形" 问题。
 func (s *ZipImageSource) LoadPicturesForRowsZip(
-	sheet string, rows []int, progress PictureLoadProgressFn,
+	sheet string, rows []int, rowHeightsPt map[int]float64, progress PictureLoadProgressFn,
 ) (map[int][]CellPictures, error) {
 	idx, ok := s.sheetIdx[sheet]
 	if !ok {
@@ -295,6 +308,16 @@ func (s *ZipImageSource) LoadPicturesForRowsZip(
 			if err != nil {
 				return nil, core.Wrap("ZIP_READ_MEDIA_FAILED", "读取图片字节失败: "+mediaPath, err)
 			}
+			// cxEMU/cyEMU = 0 的 twoCellAnchor → 用 from-to 网格 fallback 算真实渲染尺寸
+			if (a.cxEMU == 0 || a.cyEMU == 0) && a.toRow > 0 {
+				cx, cy := inferTwoCellAnchorCxCy(a, rowHeightsPt)
+				if a.cxEMU == 0 && cx > 0 {
+					a.cxEMU = cx
+				}
+				if a.cyEMU == 0 && cy > 0 {
+					a.cyEMU = cy
+				}
+			}
 			pic := excelize.Picture{
 				Extension: strings.ToLower(path.Ext(mediaPath)),
 				File:      data,
@@ -319,18 +342,84 @@ func (s *ZipImageSource) LoadPicturesForRowsZip(
 	return out, nil
 }
 
+// ptToEMU 是 pt(磅) → EMU 的换算常数。OOXML 行高用 pt，drawing 用 EMU。
+const ptToEMU = 12700
+
+// defaultRowHeightPt 是 Excel 未显式设置行高时的兜底值。
+const defaultRowHeightPt = 15.0
+
+// inferTwoCellAnchorCxCy 在 spPr/xfrm/ext.cx/cy = 0 时，从 twoCellAnchor 的
+// from-to 网格定位 + 行高 map 反推真实渲染 EMU。
+//
+// 只在"同列（from.col == to.col）"场景精确计算 cx，跨列时 cx = 0（保持原样，
+// 由下游 ScaleX=1.0 回退——跨列拼接的渲染尺寸需要列宽 EMU 换算，涉及默认字体
+// MDW，复杂度较高且实际 xlsx 罕见，留到未来按需补）。
+//
+// cy 支持同行 / 跨任意行数（只依赖行高 pt，无复杂字体换算）：
+//   - delta_row == 0：cy = to.rowOff - from.rowOff
+//   - delta_row > 0：cy = sum(rowHeightEMU[from.row..to.row-1]) - from.rowOff + to.rowOff
+func inferTwoCellAnchorCxCy(a parsedAnchor, rowHeightsPt map[int]float64) (cx, cy int64) {
+	if a.toRow <= 0 {
+		return 0, 0
+	}
+	// cx：仅同列精确
+	if a.col == a.toCol {
+		cx = a.toColOff - a.fromColOff
+		if cx < 0 {
+			cx = 0
+		}
+	}
+	// cy
+	switch {
+	case a.row == a.toRow:
+		cy = a.toRowOff - a.fromRowOff
+	case a.toRow > a.row:
+		var sum int64
+		for r := a.row; r < a.toRow; r++ {
+			ht := defaultRowHeightPt
+			if rowHeightsPt != nil {
+				if v, ok := rowHeightsPt[r]; ok && v > 0 {
+					ht = v
+				}
+			}
+			sum += int64(ht * float64(ptToEMU))
+		}
+		cy = sum - a.fromRowOff + a.toRowOff
+	}
+	if cy < 0 {
+		cy = 0
+	}
+	return cx, cy
+}
+
 // buildGraphicOptions 从 anchor 的 cx/cy 和图片自身尺寸算出 ScaleX/ScaleY。
 // 无法算时返回默认 1.0，等价于"按图片原始尺寸插入"。
+//
+// Positioning 策略（V1.2.3）：统一强制 "oneCell"，无论源是 oneCellAnchor 还是
+// twoCellAnchor editAs="oneCell"。原因：
+//   - excelize.AddPictureFromBytes 在 twoCellAnchor 模式下，会根据"目标 sheet 的
+//     defaultRowHeight（默认 15pt）"反推 to.row，导致"源行高 36pt、渲染高 438150 EMU"
+//     的图片在新 sheet 里被写成 from=row1 to=row3（因为 438150 / (15pt×12700) ≈ 2.3 行）
+//   - Excel 打开时按"目标 row 的 ht=36pt"解读 from..to 跨度 = 2×457200+57150 = 971550
+//     EMU ≈ 源图片的 2 倍高 → 图片被拉伸变形 / 跨多行
+//   - oneCellAnchor 的渲染尺寸由 ext(cx, cy) 直接决定，不依赖 defaultRowHeight，图片
+//     无论目标行高多少都保持源渲染尺寸
+//   - 源 twoCellAnchor editAs="oneCell" 的业务语义就是"图片不随单元格伸缩"，与 oneCell
+//     完全一致；真正需要"随单元格拉伸"的 editAs="twoCell" 图片在真实 xlsx 里罕见
 func buildGraphicOptions(a parsedAnchor, data []byte) *excelize.GraphicOptions {
 	opts := &excelize.GraphicOptions{
-		ScaleX: 1.0, ScaleY: 1.0,
-	}
-	if a.positioning != "" {
-		opts.Positioning = a.positioning
+		ScaleX:      1.0,
+		ScaleY:      1.0,
+		Positioning: "oneCell",
 	}
 	opts.LockAspectRatio = a.lockAspect
 	opts.AltText = a.altText
 	_ = a.name // GraphicOptions 没有 Name 字段，保持解析到为日后扩展用
+	// 保留源 from.colOff / rowOff 的像素级偏移。excelize.drawing.go 里会把
+	// OffsetX/Y * EMU 写到 from.ColOff/RowOff（单位 EMU=9525），所以这里先把 EMU
+	// 转像素四舍五入。常见值：rowOff=19050 EMU ≈ 2px（照片顶部 2 像素边距）。
+	opts.OffsetX = emuToPixels(a.fromColOff)
+	opts.OffsetY = emuToPixels(a.fromRowOff)
 	if a.cxEMU > 0 && a.cyEMU > 0 && len(data) > 0 {
 		if cfg, _, err := image.DecodeConfig(bytes.NewReader(data)); err == nil &&
 			cfg.Width > 0 && cfg.Height > 0 {
@@ -339,6 +428,14 @@ func buildGraphicOptions(a parsedAnchor, data []byte) *excelize.GraphicOptions {
 		}
 	}
 	return opts
+}
+
+// emuToPixels 把 EMU 四舍五入到整像素（1 px = 9525 EMU）。负值裁到 0。
+func emuToPixels(emu int64) int {
+	if emu <= 0 {
+		return 0
+	}
+	return int(math.Round(float64(emu) / float64(EMU)))
 }
 
 // readZipFile 从 zip 里读取某 entry 的完整字节。

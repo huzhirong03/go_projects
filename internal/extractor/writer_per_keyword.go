@@ -75,6 +75,11 @@ func (p *perKeywordWriter) EmitRow(row MatchedRow, fs *FileSchema) error {
 	if err != nil {
 		return err
 	}
+	// 第一次带图命中行：同步把源行 ht 复制到目标 sheet 的 defaultRowHeight，
+	// 避免 excelize.AddPictureFromBytes 按 15pt 反算 to.row 把图片撑成 2~3 倍高。
+	if len(row.Pictures) > 0 {
+		s.ensureDefaultHeightForPics(row.RowHeight)
+	}
 	n, err := s.migratePictures(row.Pictures, fs, dstRow, len(p.schema.Columns))
 	p.imgCount += n
 	return err

@@ -133,6 +133,15 @@ func decodeTwoCellAnchor(dec *xml.Decoder, se xml.StartElement) (parsedAnchor, b
 		lockAspect: parseXMLBool(v.Pic.NvPicPr.CNvPicPr.PicLocks.NoChangeAspect),
 		altText:    v.Pic.NvPicPr.CNvPr.Descr,
 		name:       v.Pic.NvPicPr.CNvPr.Name,
+
+		fromColOff: int64(v.From.ColOff),
+		fromRowOff: int64(v.From.RowOff),
+	}
+	if v.To != nil {
+		a.toCol = v.To.Col + 1
+		a.toRow = v.To.Row + 1
+		a.toColOff = int64(v.To.ColOff)
+		a.toRowOff = int64(v.To.RowOff)
 	}
 	// 渲染尺寸：pic 内部 spPr/xfrm/ext 才是真实渲染 cx/cy（跟 excelize 行为一致）
 	a.cxEMU = v.Pic.SpPr.Xfrm.Ext.CX
