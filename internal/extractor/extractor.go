@@ -98,7 +98,11 @@ func ExtractUnits(
 
 	// 5. 选输出策略
 	dedupCfg := buildDedupConfig(task.DedupColumn, task.DedupColumns, task.DedupIgnoreSpace, task.DedupIgnoreCase)
-	ow, imgCounterFn, err := newOutputWriter(task.Output, task.OutputDir, task.HeaderRow, task.SheetNames, task.FilenamePrefix, dedupCfg)
+	// singleXlsxSource：用于 per_keyword 策略选择 surgery vs excelize writer。
+	// 仅当源是"单一 xlsx 文件"时走 zip 手术（100% 保真 + 速度更快）。
+	// CSV 或多源场景保留老流式路径（CSV 不是 zip，不能做手术）。
+	singleXlsxSource := isSingleXlsxSource(files)
+	ow, imgCounterFn, err := newOutputWriter(task.Output, task.OutputDir, task.HeaderRow, task.SheetNames, task.FilenamePrefix, dedupCfg, singleXlsxSource)
 	if err != nil {
 		return nil, err
 	}
@@ -453,6 +457,23 @@ func validateTaskRelaxed(t core.ExtractTask) error {
 	return nil
 }
 
+// isSingleXlsxSource 判断 files 是否"仅 1 个 xlsx 源文件"（允许多 sheet 单元）。
+// per_keyword surgery writer 的使用前提：源必须是 zip 兼容的 xlsx，且跨文件合并
+// 场景走旧 excelize 路径（样式合并无解）。
+func isSingleXlsxSource(units []FileInfo) bool {
+	seen := map[string]struct{}{}
+	for _, u := range units {
+		if core.DetectSourceKind(u.Path) != core.SourceXLSX {
+			return false
+		}
+		seen[u.Path] = struct{}{}
+		if len(seen) > 1 {
+			return false
+		}
+	}
+	return len(seen) == 1
+}
+
 // countDistinctPaths 统计 FileInfo 列表中不重复的 Path 数。
 func countDistinctPaths(units []FileInfo) int {
 	seen := map[string]struct{}{}
@@ -509,10 +530,17 @@ func readRowFormulas(r *excelio.Reader, sheet string, row, ncells int) []string 
 //   - per_source -> 按源文件分桶
 func newOutputWriter(
 	strategy core.OutputStrategy, outDir string, headerRow int, sheets []string, filenamePrefix string, dedupCfg dedupConfig,
+	singleXlsxSource bool,
 ) (OutputWriter, func() int, error) {
 	const defaultSheet = "结果"
 	switch strategy {
 	case core.OutputPerKeyword:
+		// 单源 xlsx 走 zip 手术（100% 样式/图片保真 + 速度更快）；
+		// 多源 / CSV 保留老流式路径（跨源样式无法 1:1 合并；CSV 不是 zip）。
+		if singleXlsxSource {
+			w := newPerKeywordSurgeryWriter(outDir, filenamePrefix, headerRow, dedupCfg)
+			return w, w.ImagesMigrated, nil
+		}
 		w := newPerKeywordWriter(outDir, defaultSheet, filenamePrefix, dedupCfg)
 		return w, w.ImagesMigrated, nil
 	case core.OutputMerged:

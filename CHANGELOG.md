@@ -11,6 +11,74 @@
 
 ---
 
+## [v1.3.0] - 2026-05-05
+
+### 新增 (Added)
+
+- **单源 per_keyword 走 zip 手术**：批量提取"新文件 + 按关键词拆分"在源是单个
+  xlsx 文件时，输出由 excelize 流式重建升级为字节级 zip 手术，达成**100% 样式 +
+  100% 图片保真**，处理速度比原 excelize 路径快约 7 倍。
+  - 新增 `internal/excelio/newfile_zip.go.ExtractToNewFileSurgery(src, dst, specs)`：
+    源 xlsx + N 个 InplaceSheetSpec → 输出**只含筛选 sheet 的全新 xlsx**。
+    实现复用 `planInplaceSpecs` / `writePlannedSheet` / `rewriteSheetXML` /
+    `rewriteDrawingXML` / `CoerceStringCellsToNumbers` / `unshareFormulasInSheet`，
+    新增 `rebuildWorkbookForNewFile` / `rebuildWorkbookRelsForNewFile` /
+    `rebuildContentTypesForNewFile`（replace 语义而非 inplace 的 append 语义）。
+  - 新增 `internal/extractor/writer_per_keyword_surgery.go.perKeywordSurgeryWriter`：
+    EmitRow 仅累积命中行号（kw → sheet → []rowNum），Finalize 时每个关键词
+    一次 `ExtractToNewFileSurgery` 调用产出 N 文件。
+  - `extractor.newOutputWriter` 加 `singleXlsxSource bool` 参数；per_keyword 策略
+    按此分流：单 xlsx 源走 surgery，多源 / CSV 走原 perKeywordWriter（excelize）。
+  - 新增 `extractor.isSingleXlsxSource(files)` 工具函数。
+
+### 修改 (Changed)
+
+- **保真度全景**：
+  | 输出策略 | 单源 xlsx | 多源 / 含 CSV |
+  |---|---|---|
+  | per_source | 100%（已是 surgery） | 100%（已是 surgery） |
+  | merged | 100%（finalizeSingleSource 已是 surgery） | 98%（excelize 流式合并）|
+  | per_keyword | **100% ← 本版本升级** | 98%（excelize 流式合并）|
+  | inplace | 100%（已是 surgery） | n/a |
+
+### 修复 (Fixed)
+
+- **新文件模式图片变形**（接续 v1.2.2 修复，从 98% 提升到 100%）：
+  - v1.2.2 通过传 OffsetX/Y + DefaultRowHeight + ScaleX/Y 让 excelize 渲染接近源
+    （误差 ~5px，跨 1.1 行而非 1 行），但仍是 excelize 重建路径
+  - v1.3.0 单源场景**绕开 excelize**，drawing.xml + media 字节级搬运 + 行号重写：
+    输出 anchor 与源逐字节一致（含 colOff=19050 / rowOff=19050 / editAs="oneCell" /
+    `<a:extLst>` / `<a16:creationId>` 全字段）
+
+### 性能 (Performance)
+
+- 用户 fixture `03_员工花名册_2万行带照片.xlsx`（命中 2500 行 + 2500 张图）：
+  | 路径 | 时间 | 输出大小 |
+  |---|---|---|
+  | v1.2.2 excelize | ~30s | 168 KB（图片重新编码后变小）|
+  | v1.3.0 surgery | **4.3s** | 315 KB（保留源 media 原字节）|
+
+### 测试 (Tests)
+
+- `excelio/newfile_zip_test.go`: 5 个用例
+  - `TestExtractToNewFileSurgery_Basic`: 行过滤 + 图片迁移 + 跨行号重写
+  - `TestExtractToNewFileSurgery_MultipleSheets`: 多 spec → 多 sheet
+  - `TestExtractToNewFileSurgery_NoOldEntries`: 旧 sheet/calcChain 已删除、
+    media 已保留、worksheets/ 下严格只有新 sheet
+  - `TestExtractToNewFileSurgery_NilKeepRowsFull`: KeepRows=nil 全行保留
+  - `TestExtractToNewFileSurgery_Errors`: empty specs / dst 已存在 / 源 sheet 不存在
+- 既有测试无破坏（CSV per_keyword 仍走原 excelize 路径）
+
+### 限制 (Limitations)
+
+- **多源 per_keyword / merged 仍是 98%**：跨源样式索引（styles.xml / theme /
+  sharedStrings）需要重映射器才能 100% 保真，工程量 1-2 周。
+  目前丢失项：条件格式、数据验证、自定义数字格式中的高级特性（学员场景罕见）。
+  保留项：列宽行高、字体、填充、边框、合并单元格、图片首位（98% 视觉效果）。
+- **CSV 源 per_keyword 仍是 98%**：CSV 不是 zip，无法做手术；保留 excelize 流式。
+
+---
+
 ## [v1.2.2] - 2026-05-05
 
 ### 修复 (Fixed)
