@@ -14,7 +14,7 @@ const (
 	// WindowTitle 主窗口标题栏显示的文本（任务栏/Alt+Tab 也用这个）。
 	// 独立于 AppName：品牌宣传文案可换，但 AppName/AppNameEn 保持稳定供
 	// exe 属性页 / wails.json productName 用，避免破坏注册表/快捷方式等。
-	WindowTitle = "办公自动化，跟大荣学 AI"
+	WindowTitle = "学AI 提效率，办公不费力"
 
 	// AppNameEn 英文名，wails.json info.productName / 系统 exe 属性页用。
 	AppNameEn = "Excel Master Suite"
