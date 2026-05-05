@@ -224,9 +224,14 @@ func (r *Reader) Header(sheet string, headerRow int) ([]string, error) {
 		return nil, core.Wrap("EXCEL_READ_FAILED", "读取 Sheet 失败: "+sheet, err)
 	}
 	defer rows.Close()
-	// 跳到 headerRow
+	// 跳到 headerRow，区分两种"读不到"：
+	//   第 1 次 Next() == false  → Sheet 完全空（0 行） → EMPTY_SHEET（调用方应跳过）
+	//   i > 1 时 Next() == false → Sheet 有数据但行数 < headerRow（用户填错 headerRow） → HEADER_ROW_MISSING（调用方应报错）
 	for i := 1; i <= headerRow; i++ {
 		if !rows.Next() {
+			if i == 1 {
+				return nil, core.New(core.CodeEmptySheet, "Sheet 完全空（0 行）: "+sheet)
+			}
 			return nil, core.New("HEADER_ROW_MISSING", "表头行超出文件范围")
 		}
 	}

@@ -41,6 +41,11 @@ func splitByColumnInplace(
 		}
 		header, err := r.Header(sheet, task.HeaderRow)
 		if err != nil {
+			// 完全空的 Sheet 跳过（跟"缺列"处理一致），不要破坏整个拆分任务。
+			if core.IsEmptySheet(err) {
+				emitter.Log(core.LogWarn, fmt.Sprintf("[%s] 空 Sheet（0 行数据），跳过", sheet))
+				continue
+			}
 			_ = r.Close()
 			return nil, err
 		}

@@ -208,6 +208,11 @@ func probeFile(path string, headerRow int, allow sheetFilter) ([]FileInfo, error
 		if headerRow > 0 {
 			h, err := r.Header(sh, headerRow)
 			if err != nil {
+				// 完全空的 Sheet（典型场景：Excel 转 CSV 后残留的空 Sheet1）静默跳过，
+				// 不让它破坏整个批量任务。HEADER_ROW_MISSING 等其他错误仍上抛。
+				if core.IsEmptySheet(err) {
+					continue
+				}
 				return nil, err
 			}
 			headers = h

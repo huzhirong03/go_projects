@@ -24,6 +24,12 @@ const (
 	CodeCSVOpenFailed           = "CSV_OPEN_FAILED"
 	CodeCSVDecodeFailed         = "CSV_DECODE_FAILED"
 	CodeCSVEncodingUnknown      = "CSV_ENCODING_UNKNOWN"
+
+	// CodeEmptySheet Sheet 完全空（0 行）。语义跟 "HEADER_ROW_MISSING" 区分：
+	// 后者是"sheet 有数据但行数 < headerRow"（用户填错 headerRow），仍属配置错误；
+	// EMPTY_SHEET 是"sheet 一行都没有"（典型场景：Excel 转 CSV 时留下的空 Sheet1），
+	// 调用方应该跳过该 sheet + 记 warning，不要 fatal。
+	CodeEmptySheet = "EMPTY_SHEET"
 )
 
 // AppError 统一应用错误类型，便于前端按 Code 展示。
@@ -50,4 +56,12 @@ func Wrap(code, message string, cause error) *AppError {
 // New 生成一个不带底层原因的 AppError。
 func New(code, message string) *AppError {
 	return &AppError{Code: code, Message: message}
+}
+
+// IsEmptySheet 判断 err 是否为 EMPTY_SHEET 错误（经过 errors.As 解包）。
+// 调用方遇到这种错误应"跳过该 Sheet + 继续处理其他 Sheet"，而不是 fatal。
+// 典型场景：Excel 把 CSV 另存为 xlsx 时残留的空 Sheet1、用户模板里预留的空白 Sheet 等。
+func IsEmptySheet(err error) bool {
+	var ae *AppError
+	return errors.As(err, &ae) && ae.Code == CodeEmptySheet
 }

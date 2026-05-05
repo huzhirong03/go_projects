@@ -101,6 +101,12 @@ func splitOneSheetByColumn(
 ) (hasColumn bool, err error) {
 	header, err := r.Header(sheet, task.HeaderRow)
 	if err != nil {
+		// 完全空的 Sheet（典型：Excel 转 CSV 残留的 Sheet1、模板里预留空白）直接跳过，
+		// 与"缺列"路径等价：返回 hasColumn=false，上层判断"所有 Sheet 都缺"时才 fatal。
+		if core.IsEmptySheet(err) {
+			emitter.Log(core.LogWarn, fmt.Sprintf("[%s] 空 Sheet（0 行数据），跳过", sheet))
+			return false, nil
+		}
 		return false, err
 	}
 	colIdx := findColumn(header, task.SplitColumn)

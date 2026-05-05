@@ -11,6 +11,42 @@
 
 ---
 
+## [v1.5.1] - 2026-05-05
+
+### 修复 (Fixed)
+
+- **空 Sheet 不再 fatal 报错，自动跳过**：用户场景—— Excel 把 CSV 另存为 xlsx 时
+  会留一个空 Sheet1，加上从 CSV 加载的数据 Sheet，文件里就有 2 个 Sheet。v1.5.0 之前
+  软件读空 Sheet1 的表头时直接抛 `HEADER_ROW_MISSING` 致命错误，整个批量任务失败。
+  - **批量提取**（`internal/extractor/scanner.go`）：`probeFile` 遇到完全空的 Sheet
+    静默跳过，只把数据 Sheet 加进结果。其他错误（如真正的 headerRow 配置错误）仍上抛。
+  - **拆分按列值**（`internal/splitter/by_column.go`）：`splitOneSheetByColumn` 遇到
+    空 Sheet 时 emit 警告日志 + 返回 hasColumn=false，多 Sheet 场景下继续处理其他 Sheet。
+  - **拆分写回源 Sheet**（`internal/splitter/by_column_inplace.go`）：同样 emit 警告
+    + continue 到下一个 Sheet。
+
+### 新增 (Added)
+
+- **新错误码 `core.CodeEmptySheet = "EMPTY_SHEET"`**：与现有的 `HEADER_ROW_MISSING`
+  做精确区分。前者 = "Sheet 完全空 0 行"（应跳过），后者 = "Sheet 有数据但行数 < headerRow"
+  （用户填错配置，应 fatal）。
+- **新工具函数 `core.IsEmptySheet(err) bool`**：跨包统一判断空 Sheet 错误，基于 errors.As
+  解包。`extractor` / `splitter` 等所有调用 `Reader.Header` 的位置都用此函数。
+- **回归测试**：`internal/excelio/reader_empty_sheet_test.go` (4 用例)、
+  `internal/extractor/empty_sheet_test.go` (3 用例)、
+  `internal/splitter/splitter_empty_sheet_test.go` (3 用例)，
+  共 10 个测试覆盖完整路径。
+
+### 行为变化 (Changed)
+
+- `Reader.Header(sheet, headerRow)` 错误语义细化：原本所有"读不到表头"都返回
+  `HEADER_ROW_MISSING`；现在区分"第 1 次 Next() 失败 = Sheet 完全空"（返回
+  `EMPTY_SHEET`）与"i > 1 时 Next() 失败 = 行数不够 headerRow"（仍返回
+  `HEADER_ROW_MISSING`）。**调用方原来直接 return err 的路径仍然会 fatal**，
+  零回归；只有显式 `core.IsEmptySheet(err)` 检查的位置才会跳过。
+
+---
+
 ## [v1.5.0] - 2026-05-05
 
 ### 新增 (Added)
