@@ -310,6 +310,11 @@ End Sub
 
 ' 复制图片（跟随行）：遍历源 Sheet 所有 Shape，TopLeftCell.Row 在命中行集合里就复制
 ' 返回复制数量
+'
+' VBA 坑点（踩过才知道）：
+'   1. ScreenUpdating = False 时 Shape.Copy/Paste 会粘出"空白框"。必须临时开启。
+'   2. dstWs.Paste 必须在 dstWs 被 Activate 之后调用，否则图片要么粘不上、要么粘到错 sheet。
+'   3. Shape.Copy 后要给 Excel 一点时间让剪贴板就绪（DoEvents），不然偶发拿到空图。
 Private Function CopyShapesForHitRows(srcWs As Worksheet, dstWs As Worksheet, hitRows() As Long, hitN As Long, dstStartRow As Long, firstCol As Long) As Long
     Dim n As Long: n = 0
     If srcWs.Shapes.Count = 0 Then
@@ -318,13 +323,17 @@ Private Function CopyShapesForHitRows(srcWs As Worksheet, dstWs As Worksheet, hi
     End If
 
     ' 构建 源行号 → 新行号 的映射字典
-    ' VBA 没内置 Map，用 Scripting.Dictionary（需要"Microsoft Scripting Runtime"引用或晚绑定）
     Dim dict As Object
     Set dict = CreateObject("Scripting.Dictionary")
     Dim i As Long
     For i = 1 To hitN
         dict.Add hitRows(i), dstStartRow + i - 1
     Next i
+
+    ' --- 关键修复：图片复制期间临时开 ScreenUpdating + 保存原激活 Sheet ---
+    Dim prevScreen As Boolean: prevScreen = Application.ScreenUpdating
+    Dim prevActive As Object: Set prevActive = ActiveSheet
+    Application.ScreenUpdating = True
 
     Dim shp As Shape
     For Each shp In srcWs.Shapes
@@ -347,9 +356,13 @@ Private Function CopyShapesForHitRows(srcWs As Worksheet, dstWs As Worksheet, hi
             xOff = shp.Left - srcWs.Cells(srcRow, srcCol).Left
             yOff = shp.Top - srcWs.Cells(srcRow, srcCol).Top
 
-            ' 复制到目标
+            ' 复制到目标 —— 必须激活目标 Sheet 并 DoEvents
             shp.Copy
+            DoEvents                    ' 等剪贴板就绪，避免粘空白
+            dstWs.Activate              ' Paste 的目标必须是激活的 Sheet
             dstWs.Paste
+            DoEvents
+
             Dim newShp As Shape
             Set newShp = dstWs.Shapes(dstWs.Shapes.Count)
 
@@ -368,7 +381,13 @@ Private Function CopyShapesForHitRows(srcWs As Worksheet, dstWs As Worksheet, hi
 NextShape:
     Next shp
 
+    ' 恢复原状态
     Application.CutCopyMode = False
+    On Error Resume Next
+    prevActive.Activate
+    On Error GoTo 0
+    Application.ScreenUpdating = prevScreen
+
     CopyShapesForHitRows = n
 End Function
 
