@@ -311,13 +311,15 @@ func processFile(
 			emitter.Log(core.LogWarn, "获取无缓存公式 cell 列表失败，跳过回退求值: "+uerr.Error())
 		} else if len(uncached) > 0 {
 			tFormula := time.Now()
-			formulaValues, err = r.EvalFormulasAt(fs.File.SheetName, uncached)
-			if err != nil {
-				emitter.Log(core.LogWarn, "公式精准求值失败，跳过回退: "+err.Error())
+			values, stats, eerr := r.EvalFormulasAtWithStats(fs.File.SheetName, uncached)
+			if eerr != nil {
+				emitter.Log(core.LogWarn, "公式精准求值失败，跳过回退: "+eerr.Error())
 				formulaValues = nil
 			} else {
-				emitter.Log(core.LogInfo, fmt.Sprintf("[TIMING] 公式精准求值 %v: %d 个 uncached cell -> %d 个求出结果",
-					time.Since(tFormula).Round(time.Millisecond), len(uncached), len(formulaValues)))
+				formulaValues = values
+				emitter.Log(core.LogInfo, fmt.Sprintf("[TIMING] 公式精准求值 %v: 请求=%d 算出=%d 跳过(跨sheet)=%d 跳过(超预算)=%d",
+					time.Since(tFormula).Round(time.Millisecond),
+					stats.Requested, stats.Computed, stats.SkippedCrossSheet, stats.SkippedBudget))
 			}
 		}
 	}

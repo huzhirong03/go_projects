@@ -25,10 +25,29 @@ package excelio
 //   - 真实业务文件（全有缓存）：~0 ms（跳过调用）
 
 import (
+	"strings"
+	"time"
+
 	"github.com/xuri/excelize/v2"
 
 	"excel-master/internal/core"
 )
+
+// FormulaEvalBudget 是 EvalFormulasAt 的默认总时间预算。
+// excelize.CalcCellValue 对跨 sheet 聚合公式（COUNTIF / SUMIF / 引用 Sheet!range）
+// 无缓存，单 cell 可达 150-200ms；90 个 cell 可累积到 16 秒，严重拖慢整体。
+// 2 秒足够覆盖 10 万行同 sheet 简单公式的求值（实测 6000 cell = 0.5 秒），
+// 同时对慢公式场景立刻止损。可由外层按场景覆盖（暂未暴露到配置）。
+var FormulaEvalBudget = 2 * time.Second
+
+// EvalStats 返回 EvalFormulasAt 的统计信息，供上层 extractor 写日志/发事件。
+type EvalStats struct {
+	Requested         int           // 输入 refs 总数
+	Computed          int           // 成功求值的 cell 数
+	SkippedCrossSheet int           // 因公式包含跨 sheet 引用（含 '!'）被跳过的数量
+	SkippedBudget     int           // 因预算到期被跳过的数量
+	Elapsed           time.Duration // 实际耗时
+}
 
 // UncachedFormulas 返回 sheet 内所有"有 <f> 无 <v>" cell 的 ref → 公式文本映射。
 //
@@ -70,22 +89,57 @@ func (r *Reader) UncachedFormulas(sheet string) (map[string]string, error) {
 // 退化到"搜不到那一行"的老行为（可接受：跨 sheet 复杂公式 excelize calc 引擎
 // 有限，算不出就不算，不产生错误结果）。
 func (r *Reader) EvalFormulasAt(sheet string, refs map[string]string) (map[string]string, error) {
+	out, _, err := r.EvalFormulasAtWithStats(sheet, refs)
+	return out, err
+}
+
+// EvalFormulasAtWithStats 带统计信息的版本。
+//
+// 新增两个性能防护（都是社区 + 实测踩坑得到的经验）：
+//
+//  1. **跨 sheet 聚合公式跳过**：
+//     公式文本包含 '!' 的都跳过（典型如 COUNTIF(学生成绩明细!D:D, "一年级")）。
+//     excelize.CalcCellValue 对跨 sheet 引用无 cache，每次求值都要重新扫被引 sheet，
+//     实测单 cell 达 150-200ms，90 个 cell 累积到 16 秒。openpyxl / xlsxreader 等
+//     主流库也**都不求**跨 sheet 聚合公式，这是行业共识。
+//
+//  2. **总时间预算 FormulaEvalBudget**：
+//     即使同 sheet 公式也可能踩坑（超大 SUMPRODUCT 等）。累计耗时超预算后立刻
+//     停止，保证最坏场景扫描阶段不会超过 budget + 首 cell 耗时。已算出的 cell
+//     仍返回，后续 cell 的搜索命中降级到"搜不到"（可接受）。
+func (r *Reader) EvalFormulasAtWithStats(sheet string, refs map[string]string) (map[string]string, EvalStats, error) {
+	stats := EvalStats{Requested: len(refs)}
 	if r == nil || r.f == nil {
-		return nil, core.New("EXCEL_READ_FAILED", "Reader 未初始化")
+		return nil, stats, core.New("EXCEL_READ_FAILED", "Reader 未初始化")
 	}
 	out := make(map[string]string, len(refs))
 	if len(refs) == 0 {
-		return out, nil
+		return out, stats, nil
 	}
-	for ref := range refs {
+	t0 := time.Now()
+	budgetExceeded := false
+	for ref, formula := range refs {
+		// 跨 sheet 引用：公式文本里有 '!' 就跳过（Sheet!A1、'表一'!A1 等）
+		if strings.Contains(formula, "!") {
+			stats.SkippedCrossSheet++
+			continue
+		}
+		// 预算到期：剩下的 cell 都不算（避免卡死）
+		if budgetExceeded || time.Since(t0) > FormulaEvalBudget {
+			budgetExceeded = true
+			stats.SkippedBudget++
+			continue
+		}
 		v, err := r.f.CalcCellValue(sheet, ref)
 		if err != nil || v == "" {
 			// 单 cell 求值失败就跳过；不污染 map，保持调用方"搜不到"的退化行为
 			continue
 		}
 		out[ref] = v
+		stats.Computed++
 	}
-	return out, nil
+	stats.Elapsed = time.Since(t0)
+	return out, stats, nil
 }
 
 // FillRowCellsWithFormulaValues 按公式求值结果填充某行 cells 数组的空 cell。

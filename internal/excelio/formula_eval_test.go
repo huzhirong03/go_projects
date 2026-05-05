@@ -275,6 +275,67 @@ func TestFillRowCellsWithFormulaValues(t *testing.T) {
 	})
 }
 
+// TestEvalFormulasAt_SkipsCrossSheet：公式里含 '!' 的不应被调 CalcCellValue。
+// 这是防踩"跨 sheet 聚合 180ms/cell 累积到 16 秒"坑的关键门禁。
+func TestEvalFormulasAt_SkipsCrossSheet(t *testing.T) {
+	path := buildUncachedFormulaFixture(t)
+	r, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer r.Close()
+
+	// 构造 refs：同 sheet 公式（D2=B2*C2）和跨 sheet 公式混合
+	refs := map[string]string{
+		"D2": "B2*C2",               // 同 sheet，应算
+		"D3": "Sheet1!A1+Sheet2!B2", // 跨 sheet，应跳
+		"D4": "'学生成绩明细'!D2",         // 跨 sheet (带引号)，应跳
+		"D5": "B5*C5",               // 同 sheet，应算
+	}
+	_, stats, err := r.EvalFormulasAtWithStats("数据", refs)
+	if err != nil {
+		t.Fatalf("EvalFormulasAtWithStats: %v", err)
+	}
+	if stats.SkippedCrossSheet != 2 {
+		t.Errorf("SkippedCrossSheet=%d 期望 2", stats.SkippedCrossSheet)
+	}
+	if stats.Computed < 1 {
+		// 同 sheet 的 D2/D5 至少要算出 1 个（excelize 可能对单元格类型报错，放宽）
+		t.Errorf("Computed=%d 期望 >= 1", stats.Computed)
+	}
+}
+
+// TestEvalFormulasAt_RespectsBudget：budget 到期后剩余 ref 应被跳过，
+// 已算出的不丢。把 budget 临时调到 1 纳秒模拟"预算已耗尽"的边界。
+func TestEvalFormulasAt_RespectsBudget(t *testing.T) {
+	path := buildUncachedFormulaFixture(t)
+	r, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer r.Close()
+
+	// 临时把 budget 设为 1 纳秒：第一个 cell 算完就会判定预算耗尽
+	origBudget := FormulaEvalBudget
+	FormulaEvalBudget = 1
+	defer func() { FormulaEvalBudget = origBudget }()
+
+	refs := map[string]string{
+		"D2": "B2*C2",
+		"D3": "B3*C3",
+		"D4": "B4*C4",
+		"D5": "B5*C5",
+	}
+	_, stats, err := r.EvalFormulasAtWithStats("数据", refs)
+	if err != nil {
+		t.Fatalf("EvalFormulasAtWithStats: %v", err)
+	}
+	// 4 个中至少 1 个被 budget 跳过（通常是 3 个）
+	if stats.SkippedBudget == 0 {
+		t.Errorf("budget=1ns 下 SkippedBudget 应 >= 1，实际 %d", stats.SkippedBudget)
+	}
+}
+
 func slicesEqual(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
